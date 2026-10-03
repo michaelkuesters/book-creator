@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "book-creator"
+version = "0.1.0"
+description = "Local Leanpub-style studio for Markdown packages"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.12",
+    "reportlab==4.4.9",
+    "pypdf==6.10.0",
+    "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "httpx>=0.27.0"]
+
+[project.scripts]
+book-creator = "book_creator.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+book_creator = [
+    "builder/epub.css",
+    "builder/fonts/*.ttf",
+    "builder/fonts/LICENSE.txt",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

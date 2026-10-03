@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ book.title }}{% endblock %}
+{% block header_extra %}
+<div class="row">
+  <a class="button secondary" href="/books/{{ book.id }}/export.zip">Download source zip</a>
+  <a class="button secondary" href="/books/{{ book.id }}/export.zip?dist=true">Download with editions</a>
+</div>
+{% endblock %}
+{% block body %}
+<div class="grid">
+  <aside class="panel">
+    <h2>Manuscript</h2>
+    <p class="muted">{% if has_override %}Override builder present{% else %}Default studio builder{% endif %}</p>
+    <ul class="files">
+      {% for item in files %}
+      <li><a class="{% if item.path == selected %}active{% endif %}" href="/books/{{ book.id }}?file={{ item.path }}">{{ item.path }}</a></li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/books/{{ book.id }}/files/new">
+      <label>Add Markdown file <input name="name" placeholder="04-new-chapter.md" required></label>
+      <div class="row"><button type="submit">Add chapter</button></div>
+    </form>
+    <form method="post" action="/books/{{ book.id }}/resources" enctype="multipart/form-data">
+      <label>Add resource <input type="file" name="resource" required></label>
+      <div class="row"><button type="submit">Upload</button></div>
+    </form>
+    <form method="post" action="/books/{{ book.id }}/order">
+      <label>Book.txt order<textarea name="order" rows="10">{{ order | join('\n') }}</textarea></label>
+      <div class="row"><button type="submit">Save order</button></div>
+    </form>
+  </aside>
+  <section class="panel">
+    <h2>{{ selected }}</h2>
+    {% if selected == 'metadata.yaml' %}
+    <form method="post" action="/books/{{ book.id }}/metadata">
+      <label>Title <input name="title" value="{{ meta.title }}"></label>
+      <label>Subtitle <input name="subtitle" value="{{ meta.subtitle }}"></label>
+      <label>Author <input name="author" value="{{ meta.author }}"></label>
+      <label>Language <input name="lang" value="{{ meta.lang }}"></label>
+      <label>Rights <input name="rights" value="{{ meta.rights }}"></label>
+      <label>Date <input name="date" value="{{ meta.date }}"></label>
+      <label>Description <textarea name="description" rows="4">{{ meta.description }}</textarea></label>
+      <div class="row"><button type="submit">Save metadata</button></div>
+    </form>
+    {% elif editable %}
+    <form method="post" action="/books/{{ book.id }}/files">
+      <input type="hidden" name="path" value="{{ selected }}">
+      <textarea class="editor" name="content">{{ content }}</textarea>
+      <div class="row">
+        <button type="submit">Save file</button>
+      </div>
+    </form>
+    {% if selected not in ['manuscript/Book.txt', 'metadata.yaml'] %}
+    <form method="post" action="/books/{{ book.id }}/files/delete" onsubmit="return confirm('Delete this file?');">
+      <input type="hidden" name="path" value="{{ selected }}">
+      <div class="row"><button class="danger" type="submit">Delete file</button></div>
+    </form>
+    {% endif %}
+    {% else %}
+    <p class="muted">Binary file. Download the source zip or replace it by uploading a resource with the same name.</p>
+    {% endif %}
+  </section>
+  <aside class="panel">
+    <h2>Generate</h2>
+    <form method="post" action="/books/{{ book.id }}/build">
+      <div class="row"><button type="submit">Build PDF and EPUB</button></div>
+    </form>
+    <h3>Editions</h3>
+    {% if editions %}
+    <ul class="files">
+      {% for edition in editions %}
+      <li><a href="/books/{{ book.id }}/editions/{{ edition.name }}">{{ edition.name }}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No editions yet.</p>
+    {% endif %}
+    <h3>Jobs</h3>
+    {% for job in jobs[:5] %}
+    <p class="muted">{{ job.status }} · {{ job.created_at }}{% if job.used_override %} · override{% endif %}</p>
+    {% if job.log %}<div class="log">{{ job.log }}</div>{% endif %}
+    {% if job.error %}<div class="log">{{ job.error }}</div>{% endif %}
+    {% else %}
+    <p class="muted">No builds yet.</p>
+    {% endfor %}
+    <form method="post" action="/books/{{ book.id }}/delete" onsubmit="return confirm('Delete this book from the studio?');">
+      <div class="row"><button class="danger" type="submit">Delete book</button></div>
+    </form>
+  </aside>
+</div>
+{% endblock %}

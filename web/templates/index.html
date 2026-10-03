@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="panel">
+  <h2>Books</h2>
+  {% if books %}
+  <ul class="books">
+    {% for book in books %}
+    <li>
+      <a href="/books/{{ book.id }}">{{ book.title }}</a>
+      <div class="muted">{{ book.slug }} · updated {{ book.updated_at }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No books yet. Create one or upload a Leanpub-style zip.</p>
+  {% endif %}
+</section>
+<div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 1rem;">
+  <form class="panel" method="post" action="/books">
+    <h2>New book</h2>
+    <label>Title <input name="title" value="Untitled book"></label>
+    <div class="row"><button type="submit">Create empty package</button></div>
+  </form>
+  <form class="panel" method="post" action="/books/import" enctype="multipart/form-data">
+    <h2>Upload package</h2>
+    <p class="muted">Zip with <code>metadata.yaml</code> and <code>manuscript/</code>.</p>
+    <label>Package <input type="file" name="package" accept=".zip" required></label>
+    <div class="row"><button type="submit">Import zip</button></div>
+  </form>
+</div>
+{% endblock %}
