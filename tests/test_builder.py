@@ -39,6 +39,28 @@ def test_default_build(tiny_package):
     assert "Tiny_Test_Book.pdf" in report["files"]
 
 
+def test_default_build_clears_prior_dist_artifacts(tiny_package):
+    if not _pandoc_available():
+        pytest.skip("pandoc is required for the default builder")
+    dist = tiny_package / "dist"
+    dist.mkdir(exist_ok=True)
+    stale_pdf = dist / "Old_Title.pdf"
+    stale_epub = dist / "Old_Title.epub"
+    stale_pdf.write_bytes(b"%PDF-1.4 stale")
+    stale_epub.write_bytes(b"PK stale-epub")
+    (dist / "junk.txt").write_text("leftover\n", encoding="utf-8")
+    build_editions(tiny_package)
+    names = {p.name for p in dist.iterdir() if p.is_file()}
+    assert names == {
+        "Tiny_Test_Book.md",
+        "Tiny_Test_Book.pdf",
+        "Tiny_Test_Book.epub",
+        "build-report.json",
+    }
+    assert not stale_pdf.exists()
+    assert not stale_epub.exists()
+
+
 def test_override_job(data_dir, tiny_package):
     script_dir = tiny_package / "scripts"
     script_dir.mkdir()

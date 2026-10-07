@@ -13,8 +13,10 @@ Scenario: Default build
   Given a valid package with metadata.yaml and Book.txt
   And the operator does not request the package script
   When they create PDF and EPUB
-  Then dist/ contains Markdown, PDF, EPUB, and build-report.json
+  Then dist/ is cleared of prior edition outputs first
+  And dist/ then contains only that run’s Markdown, PDF, EPUB, and build-report.json
   And filenames are derived from the book title
+  And leftover PDFs/EPUBs from an older title or earlier build are gone
 
 Scenario: Override build
   Given scripts/build_book.py exists
@@ -52,6 +54,7 @@ Scenario: Residual raw HTML does not fail the default build
 - Default engine: combine chapters, Pandoc JSON, ReportLab PDF, Pandoc EPUB3, DejaVu fonts bundled in the app.
 - Default PDF walker tolerates Pandoc `RawInline` / `RawBlock`: HTML break tags (`br`) map to a line break; other raw HTML is skipped (content omitted) so residual or imported HTML does not fail the job.
 - Output directory is the package `dist/` on the data volume, not a git `dist/`.
+- Before writing outputs, a default-engine build removes existing files under that package’s `dist/` (so only the current run’s editions remain—no pile-up of old titles or stale PDF/EPUB/Markdown/report files). Override builds are unchanged: the package script owns `dist/`.
 - Override runs only when `scripts/build_book.py` exists **and** the operator sets `use_override`.
 - Builds are SQLite jobs (`queued` / `running` / `succeeded` / `failed`) with log and error.
 - Pandoc lives in the studio image.
@@ -64,6 +67,7 @@ Scenario: Residual raw HTML does not fail the default build
 - Must not call Leanpub’s network.
 - Must not fail a default-engine build solely because Pandoc emitted `RawInline` or `RawBlock` for HTML.
 - Must not rewrite the operator’s package `scripts/build_book.py`; override behaviour stays package-owned.
+- Must not delete files outside the book package `dist/` (browser Downloads and other OS folders are out of scope).
 
 ### Escalation
 
@@ -73,8 +77,9 @@ Scenario: Residual raw HTML does not fail the default build
 ## Acceptance criteria
 
 1. Default build of the tiny fixture writes `Tiny_Test_Book.pdf` and `Tiny_Test_Book.epub` and a page count ≥ 2 when Pandoc is present.
-2. Override job with a stub `scripts/build_book.py` sets `used_override` and writes the script’s `dist/` output.
-3. Invalid empty `Book.txt` raises a builder error.
-4. Publish UI lists PDF and EPUB download links after a successful default build; those links include a mtime cache buster and the edition response sets no-store cache headers.
-5. Default build of a chapter that still contains an HTML `<br>` (Pandoc `RawInline`) succeeds; the job does not raise `Unsupported inline: RawInline`.
-6. Covered by `tests/test_builder.py` and edition download coverage in `tests/test_app.py`.
+2. Default build removes pre-existing `dist/` files first; after success, `dist/` contains only the new stem’s `.md`/`.pdf`/`.epub` plus `build-report.json` (no leftover foreign PDF/EPUB).
+3. Override job with a stub `scripts/build_book.py` sets `used_override` and writes the script’s `dist/` output.
+4. Invalid empty `Book.txt` raises a builder error.
+5. Publish UI lists PDF and EPUB download links after a successful default build; those links include a mtime cache buster and the edition response sets no-store cache headers.
+6. Default build of a chapter that still contains an HTML `<br>` (Pandoc `RawInline`) succeeds; the job does not raise `Unsupported inline: RawInline`.
+7. Covered by `tests/test_builder.py` and edition download coverage in `tests/test_app.py`.

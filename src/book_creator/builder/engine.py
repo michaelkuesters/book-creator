@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import re
+import shutil
 import subprocess
 import textwrap
 
@@ -116,11 +117,23 @@ def register_fonts(root: Path) -> None:
     )
 
 
+def _clear_dist(dist: Path) -> None:
+    """Remove prior edition outputs so only the current build remains."""
+    if not dist.is_dir():
+        return
+    for path in dist.iterdir():
+        if path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+
 def build_editions(root: Path) -> dict:
     root = root.resolve()
     manuscript = root / "manuscript"
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
+    _clear_dist(dist)
     meta_path = root / "metadata.yaml"
     if not meta_path.is_file():
         raise BuildError("metadata.yaml is required")
