@@ -24,7 +24,9 @@ from book_creator.packages import (
     import_book,
     list_assets,
     checkpoint_chapter_history,
+    chapter_download_filename,
     chapter_history_squash_options,
+    chapter_title,
     create_chapter_tag,
     delete_chapter_tag,
     list_chapter_history,
@@ -470,6 +472,33 @@ def job_status(book_id: str, job_id: str):
     if not job or job["book_id"] != book_id:
         raise HTTPException(404, "Job not found")
     return job
+
+
+@app.get("/books/{book_id}/chapters/download")
+def download_chapter(book_id: str, path: str):
+    _book_or_404(book_id)
+    root = book_root(book_id)
+    rel = path.replace("\\", "/").lstrip("/")
+    if not (
+        rel.startswith("manuscript/")
+        and rel.endswith(".md")
+        and "/resources/" not in rel
+        and not rel.startswith("manuscript/.")
+    ):
+        raise HTTPException(400, "Only manuscript chapters can be downloaded")
+    try:
+        content = read_text_file(root, rel)
+        title = chapter_title(root, Path(rel).name)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    filename = chapter_download_filename(title)
+    # Escape quotes in filename for Content-Disposition.
+    safe_name = filename.replace('"', "")
+    return Response(
+        content.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
 
 
 @app.get("/books/{book_id}/export.zip")

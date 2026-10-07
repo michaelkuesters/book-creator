@@ -3,7 +3,13 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from book_creator.app import app
-from book_creator.packages import create_book, read_book_txt, read_text_file, book_root
+from book_creator.packages import (
+    book_root,
+    create_book,
+    read_book_txt,
+    read_text_file,
+    write_text_file,
+)
 
 
 def test_settings_sheet(data_dir):
@@ -77,6 +83,12 @@ def test_home_and_book_pages(data_dir):
     assert b"Publish" in page.content
     assert b"UI Book" in page.content
     assert b"chapter-title-input" in page.content
+    assert b"insert-asset-btn" in page.content
+    assert b"chapter-more-menu" in page.content
+    assert b"chapter-download-btn" in page.content
+    assert b"chapter-tags-btn" in page.content
+    assert b"chapter-history-btn" in page.content
+    assert b">More</summary>" in page.content
     assert b"edits autosave as Markdown" not in page.content
     details = client.get(f"/books/{book['id']}/details")
     assert details.status_code == 200
@@ -371,6 +383,31 @@ def test_asset_upload_json_and_serve(data_dir):
     assert served.status_code == 200
     page = client.get(f"/books/{book['id']}/assets")
     assert b"diagram.png" in page.content
+
+
+def test_download_chapter_markdown(data_dir):
+    book = create_book("Download Me")
+    client = TestClient(app)
+    root = book_root(book["id"])
+    path = "manuscript/Download Me.md"
+    body = "# 2. Prepare the Runway\n\nChapter body for download.\n"
+    write_text_file(root, path, body)
+    response = client.get(
+        f"/books/{book['id']}/chapters/download",
+        params={"path": path},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert "2- Prepare the Runway-" in disposition
+    assert '.md"' in disposition
+    assert response.content.decode("utf-8").startswith("# 2. Prepare the Runway\n")
+    bad = client.get(
+        f"/books/{book['id']}/chapters/download",
+        params={"path": "metadata.yaml"},
+    )
+    assert bad.status_code == 400
 
 
 def test_chapter_reorder_rename_remove(data_dir):

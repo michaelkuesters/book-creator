@@ -4,6 +4,8 @@ These rules are the always-loaded process core for Book Creator. They apply to e
 
 This repository follows [Agentic Continuous Delivery](https://beyond.minimumcd.org/docs/agentic-cd/). Humans own intent and accountability. Agents may read and generate artifacts. Agents may not redefine artifact authority. The pipeline’s test verdict is definitive.
 
+**Human approval gate (mandatory):** When Intent, User-facing behaviour, Feature description, or Acceptance criteria are new or changed, a human must approve those document edits before any implementation (code, tests, container files, or registry status that claims the outcome). Drafting or revising feature docs does not authorize coding. Plans, chat agreement to “implement the plan,” or prior sessions do not replace this gate. If approval is missing, stop after the doc change and ask.
+
 Entry points for agents: root [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) both require this file.
 
 ## Commands
@@ -51,10 +53,11 @@ The [feature registry](feature-registry.md) lists every current feature and what
 
 ## Working a change
 
-1. Identify the feature in the [feature registry](feature-registry.md). If none fits, add a feature document and registry row before coding.
-2. Keep the change to one feature outcome.
-3. Put tests with the behaviour. Run `make test`.
-4. Do not promote, tag, or deploy. Humans run `make run` locally.
+1. Identify the feature in the [feature registry](feature-registry.md). If none fits, draft a feature document and registry row (docs only).
+2. If Intent, User-facing behaviour, Feature description, or Acceptance criteria are new or changed: write or update only those docs, then **stop and obtain explicit human approval**. Do not implement until approved.
+3. Keep the change to one feature outcome.
+4. Put tests with the behaviour. Run `make test`.
+5. Do not promote, tag, or deploy. Humans run `make run` locally.
 
 ## Retrieval
 

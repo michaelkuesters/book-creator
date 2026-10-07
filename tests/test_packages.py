@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import io
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from book_creator.packages import (
     PackageError,
+    chapter_download_filename,
+    chapter_title,
     create_book,
     delete_file,
     import_book,
@@ -75,6 +78,32 @@ def test_rename_chapter_keeps_filename_in_sync(data_dir):
     assert read_text_file(root, "manuscript/Fresh start.md").startswith("# Fresh start\n")
     assert not (root / "manuscript" / "Demo.md").exists()
     assert list_chapters(root)[0]["title"] == "Fresh start"
+
+
+def test_numbered_heading_escapes_normalized(data_dir):
+    book = create_book("Escape Book")
+    root = data_dir / "books" / book["id"]
+    path = "manuscript/Escape Book.md"
+    body = "# 2\\. Prepare the Runway\n\nEnough body text to keep this chapter substantial.\n"
+    (root / path).write_text(body, encoding="utf-8")
+    assert chapter_title(root, "Escape Book.md") == "2. Prepare the Runway"
+    assert list_chapters(root)[0]["title"] == "2. Prepare the Runway"
+    write_text_file(root, path, body)
+    saved = read_text_file(root, path)
+    assert saved.startswith("# 2. Prepare the Runway\n")
+    assert "2\\." not in saved
+
+
+def test_chapter_download_filename_dots_and_stamp():
+    when = datetime(2026, 10, 7, 21, 51)
+    assert (
+        chapter_download_filename("2. Prepare the Runway", when)
+        == "2- Prepare the Runway-2026-10-07-2151.md"
+    )
+    assert (
+        chapter_download_filename("2\\. Prepare the Runway", when)
+        == "2- Prepare the Runway-2026-10-07-2151.md"
+    )
 
 
 def test_refuses_empty_overwrite_of_substantial_chapter(data_dir):

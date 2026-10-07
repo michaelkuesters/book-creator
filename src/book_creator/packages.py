@@ -28,10 +28,38 @@ SQUASH_MODES = frozenset({"same_days", "same_week", "all"})
 _WIPE_MIN_EXISTING = 80
 _TAG_LABEL_MAX = 120
 _WORD_RE = re.compile(r"\b[\w'-]+\b")
+# CommonMark backslash-escapes of ASCII punctuation (e.g. Toast UI's "2\." in headings).
+_MD_ESCAPE_RE = re.compile(r'\\([!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~])')
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})([ \t]+)(.*)$")
 
 
 class PackageError(ValueError):
     pass
+
+
+def _unescape_md_text(text: str) -> str:
+    return _MD_ESCAPE_RE.sub(r"\1", text)
+
+
+def _normalize_chapter_heading(content: str) -> str:
+    """Strip spurious Markdown escapes from the first ATX heading line."""
+    body = content.replace("\r\n", "\n")
+    ended = body.endswith("\n")
+    lines = body.splitlines()
+    if not lines:
+        return body
+    match = _ATX_HEADING_RE.match(lines[0])
+    if not match:
+        return body
+    hashes, space, title = match.group(1), match.group(2), match.group(3)
+    cleaned = _unescape_md_text(title)
+    if cleaned == title:
+        return body
+    lines[0] = f"{hashes}{space}{cleaned}"
+    out = "\n".join(lines)
+    if ended:
+        out += "\n"
+    return out
 
 
 def book_root(book_id: str) -> Path:
@@ -90,10 +118,22 @@ def chapter_title(root: Path, name: str) -> str:
         for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped.startswith("# "):
-                return stripped[2:].strip() or Path(name).stem
+                title = _unescape_md_text(stripped[2:].strip())
+                return title or Path(name).stem
     except OSError:
         pass
     return Path(name).stem
+
+
+def chapter_download_filename(title: str, when: datetime | None = None) -> str:
+    """Attachment name: title with dots as dashes, then local YYYY-MM-DD-HHMM.md."""
+    stamp = when or datetime.now().astimezone()
+    cleaned = " ".join(str(title).split()).strip()
+    cleaned = _unescape_md_text(cleaned)
+    cleaned = cleaned.replace("\0", "").replace("/", "-").replace("\\", "-")
+    cleaned = cleaned.replace(".", "-").strip(" -") or "chapter"
+    stamp_s = stamp.strftime("%Y-%m-%d-%H%M")
+    return f"{cleaned}-{stamp_s}.md"
 
 
 def list_chapters(root: Path) -> list[dict]:
@@ -157,7 +197,7 @@ def rename_chapter(root: Path, relative: str, title: str) -> dict:
         raise PackageError("Only manuscript chapters can be renamed")
     if rel in PROTECTED:
         raise PackageError("This file cannot be renamed")
-    cleaned = " ".join(str(title).split()).strip()
+    cleaned = _unescape_md_text(" ".join(str(title).split()).strip())
     if not cleaned:
         raise PackageError("Chapter title is required")
     path = resolve_inside(root, rel)
@@ -706,6 +746,9 @@ def write_text_file(root: Path, relative: str, content: str, add_to_book: bool =
         raise PackageError("Not a text file")
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = content.replace("\r\n", "\n")
+    rel_probe = relative.replace("\\", "/").lstrip("/")
+    if _is_manuscript_chapter(rel_probe):
+        normalized = _normalize_chapter_heading(normalized)
     created = not path.exists()
     if not created and path.is_file():
         existing = path.read_text(encoding="utf-8")

@@ -4,7 +4,7 @@
 
 Leave-time History is an automatic audit trail. Operators also need to mark a chapter *as it stands now* with a short free-text label (for example “section 1 reworked”) so they can return to that named moment later—without hunting timestamps or relying on autosave alone.
 
-**Hypothesis:** We believe a Tags control beside History, reusing the same snapshot-and-open mechanics, will make intentional checkpoints cheap while keeping automatic History unchanged.
+**Hypothesis:** We believe a Tags control beside History in the chapter More menu, reusing the same snapshot-and-open mechanics, will make intentional checkpoints cheap while keeping automatic History unchanged.
 
 ## User-facing behaviour
 
@@ -39,7 +39,7 @@ Scenario: Tags stay distinct from History
 
 ### Musts
 
-- Write offers a **Tags** control next to **History**, using the same sheet/`<dialog>` pattern: create a new tag, open a prior tagged version, or delete a tag.
+- Write offers a **Tags** control next to **History** in the chapter More menu, using the same sheet/`<dialog>` pattern: create a new tag, open a prior tagged version, or delete a tag.
 - Creating a tag captures the chapter content **as of now** (current editor content, persisted first if dirty) with a short free-text label the operator types in a `<dialog>` (not `window.prompt`).
 - Tags are per chapter, newest first. Each entry shows label, timestamp, and word count, plus a delete action.
 - Deleting a tag confirms via `<dialog>`, then removes only that tagged snapshot. Latest and leave-time History stay intact.
@@ -66,7 +66,7 @@ Scenario: Tags stay distinct from History
 
 ## Acceptance criteria
 
-1. Write shows Tags next to History; the Tags sheet can create a labelled snapshot of the current chapter and list prior tags (label, timestamp, word count) with delete.
+1. Write shows Tags next to History in the chapter More menu; the Tags sheet can create a labelled snapshot of the current chapter and list prior tags (label, timestamp, word count) with delete.
 2. Opening a tag loads content into the editor without writing Latest; starting to edit uses the existing Proceed / Open Read-Only `<dialog>`.
 3. Deleting a tag confirms via `<dialog>` and removes only that tag; Latest and History are unchanged.
 4. Tags are not listed in History; History Squash does not remove tags; tags are not included in package zip exports.

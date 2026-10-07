@@ -133,6 +133,26 @@ Scenario: Insert illustration into a chapter
   When the operator inserts an illustration
   Then the chapter Markdown gains an image pointing at resources/<filename>
   And the editor shows the image while editing
+
+Scenario: Chapter actions menu
+  Given an open chapter on Write
+  When the operator views the editor toolbar
+  Then Insert illustration remains a primary control
+  And Tags, History, and Download chapter live in a More menu
+
+Scenario: Download a chapter
+  Given an open chapter on Write
+  When the operator chooses Download chapter from More
+  Then the browser downloads that chapter’s Markdown as Latest on disk
+  And the filename is the chapter title with dots replaced by dashes,
+      then a local timestamp YYYY-MM-DD-HHMM, with a .md suffix
+  And unsaved editor edits are flushed through autosave before the download
+
+Scenario: Numbered chapter titles stay unescaped
+  Given a chapter whose heading is a numbered title such as "2. Prepare the Runway"
+  When the editor saves Markdown that would escape the period as "2\."
+  Then the on-disk heading and the Write title show "2. Prepare the Runway"
+  And the escape does not reappear after reload
 ```
 
 ## Feature description
@@ -150,7 +170,10 @@ Scenario: Insert illustration into a chapter
 - The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no explicit Save control on Write). Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax. Typing Markdown in the WYSIWYG view converts a construct as soon as it is completed: inline emphasis/code, links, images, ATX headings (`#`–`######` plus space), bullet and ordered lists, task items (`- [ ]` / `- [x]`), block quotes, thematic breaks, and GFM pipe tables. Raw delimiter characters must not remain visible after that conversion.
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
 - Saving must not replace a substantial on-disk chapter with blank or heading-only text (guards against undo-to-empty then autosave).
-- Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
+- Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History (in the chapter More menu) to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
+- Write’s chapter toolbar keeps **Insert illustration** as a primary control. **Tags**, **History**, and **Download chapter** live in a More overflow menu (reuse the studio `<details class="nav-menu">` pattern).
+- Download chapter serves the current on-disk Latest Markdown for that chapter. If the editor is dirty, flush via the autosave endpoint first. The attachment filename is `{title-with-dots-as-dashes}-{YYYY-MM-DD-HHMM}.md` using local clock time (e.g. `2. Prepare the Runway` → `2- Prepare the Runway-2026-10-07-2151.md`).
+- Chapter heading titles must not retain spurious Markdown backslash escapes (e.g. `2\.` from WYSIWYG serializers). Saving a manuscript chapter normalizes the first ATX heading; title display and Contents use the unescaped text.
 - History offers Squash only when at least one scope would remove a version. Squash opens a `<dialog>` post-selection with only the scopes that apply: Same days (collapse multiple versions on the same UTC calendar day), Same week (same UTC ISO week), All (collapse the entire list to the single newest version). Within each group, the newest version is kept and older ones in that group are deleted. Squashing must not rewrite or retimestamp the kept record—its original revision id and `saved_at` stay intact.
 - Unsaved highlighting is a diff against the chapter text at last load or last successful save, built by matching equal substrings of maximum length (longest contiguous matches first), not by splitting on individual characters. Identical gaps (including spaces between words) stay equal—never delete+insert of the same text. Opening a chapter shows no highlights until the operator edits. Additions are highlighted in place; removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop). When that diff reaches about fifty segments, the studio consolidates by saving through the autosave endpoint so the baseline resets and highlighting clears.
 - Paths stay inside the book package; `..` is rejected.
@@ -163,7 +186,9 @@ Scenario: Insert illustration into a chapter
 - Must not persist a blank or heading-only overwrite over a substantial chapter.
 - Must not store HTML as the chapter source of truth.
 - Must not require a client-side SPA build; server-rendered pages plus small scripts (and CDN editor assets) are enough.
-- Must not bury Download or Publish only inside the chapter layout; they belong in the book navbar.
+- Must not bury book-level Download or Publish only inside the chapter layout; they belong in the book navbar (chapter Markdown download is a separate Write More-menu action).
+- Must not leave Tags, History, and Download chapter as three peer toolbar buttons that crowd Insert illustration; they belong in More.
+- Must not persist CommonMark heading escapes such as `2\.` in on-disk chapter titles or the Write title field.
 - Must not block navigation with a browser leave-confirm dialog when the chapter has unsaved edits.
 - Must not use `window.prompt`, `window.confirm`, or `window.alert` for the older-version edit warning or squash scope picker; use HTML `<dialog>`.
 - Must not present Squash (or a squash scope) when that action would not remove any version.
@@ -188,5 +213,6 @@ Scenario: Insert illustration into a chapter
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
-7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown.
-8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, and asset upload/serve).
+7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown; Write keeps Insert illustration primary while Tags, History, and Download chapter live in More.
+8. Download chapter returns that chapter’s Latest Markdown with filename `{title-dots-to-dashes}-{YYYY-MM-DD-HHMM}.md`; dirty editor content is saved first; numbered headings do not persist `\.` escapes after save or in titles.
+9. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, asset upload/serve, heading unescape, and chapter download).

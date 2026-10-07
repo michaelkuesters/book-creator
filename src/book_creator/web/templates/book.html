@@ -79,9 +79,15 @@
                spellcheck="true">
       </div>
       <div class="row editor-toolbar-extra">
-        <button type="button" class="button ghost" id="chapter-tags-btn">Tags</button>
-        <button type="button" class="button ghost" id="chapter-history-btn">History</button>
         <button type="button" class="button ghost" id="insert-asset-btn">Insert illustration</button>
+        <details class="nav-menu chapter-more-menu">
+          <summary class="button ghost">More</summary>
+          <div class="menu-panel">
+            <button type="button" class="menu-action" id="chapter-tags-btn">Tags</button>
+            <button type="button" class="menu-action" id="chapter-history-btn">History</button>
+            <button type="button" class="menu-action" id="chapter-download-btn">Download chapter</button>
+          </div>
+        </details>
       </div>
     </header>
     <div id="version-banner" class="version-banner" hidden>

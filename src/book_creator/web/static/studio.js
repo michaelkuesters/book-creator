@@ -1249,6 +1249,47 @@
     setupLeaveSave();
     setupChapterTags();
     setupChapterHistory();
+    setupChapterDownload();
+  }
+
+  function closeChapterMoreMenu() {
+    var menu = document.querySelector(".chapter-more-menu");
+    if (menu) menu.open = false;
+  }
+
+  function setupChapterDownload() {
+    var btn = document.getElementById("chapter-download-btn");
+    var form = document.getElementById("editor-form");
+    if (!btn || !form) return;
+
+    btn.addEventListener("click", async function () {
+      closeChapterMoreMenu();
+      var pathInput = form.querySelector('input[name="path"]');
+      var path = pathInput ? pathInput.value : "";
+      if (!path) return;
+      try {
+        if (dirty) {
+          var saved = await saveNow();
+          if (!saved && dirty) {
+            setSaveStatus("Save current chapter before download", "error");
+            return;
+          }
+        }
+        var url =
+          "/books/" +
+          bookId() +
+          "/chapters/download?path=" +
+          encodeURIComponent(path);
+        var link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", "");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } catch (err) {
+        setSaveStatus("Could not download chapter", "error");
+      }
+    });
   }
 
   function setupChapterTags() {
@@ -1352,6 +1393,7 @@
     }
 
     openBtn.addEventListener("click", async function () {
+      closeChapterMoreMenu();
       try {
         await loadTags();
         if (typeof dialog.showModal === "function") dialog.showModal();
@@ -1581,6 +1623,7 @@
     }
 
     openBtn.addEventListener("click", async function () {
+      closeChapterMoreMenu();
       try {
         await loadHistory();
         if (typeof dialog.showModal === "function") dialog.showModal();
