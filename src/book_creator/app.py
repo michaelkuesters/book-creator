@@ -38,8 +38,7 @@ from book_creator.packages import (
     zip_package,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
-WEB = ROOT / "web"
+WEB = Path(__file__).resolve().parent / "web"
 
 app = FastAPI(title="Book Creator")
 templates = Jinja2Templates(directory=str(WEB / "templates"))

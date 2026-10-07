@@ -2,7 +2,7 @@
 
 Local Leanpub-style studio: store Markdown packages, edit them, and generate a reading PDF and EPUB.
 
-Process for agents and humans: [docs/DEVELOPMENT-GUIDELINES.md](docs/DEVELOPMENT-GUIDELINES.md). Feature list: [docs/features/README.md](docs/features/README.md). Delivery artifacts follow [Agentic Continuous Delivery](https://beyond.minimumcd.org/docs/agentic-cd/).
+Process for agents and humans: [docs/DEVELOPMENT-GUIDELINES.md](docs/DEVELOPMENT-GUIDELINES.md). Feature library: [docs/features/README.md](docs/features/README.md). Delivery artifacts follow [Agentic Continuous Delivery](https://beyond.minimumcd.org/docs/agentic-cd/).
 
 ## Package contract
 

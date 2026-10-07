@@ -34,6 +34,9 @@ book_creator = [
     "builder/epub.css",
     "builder/fonts/*.ttf",
     "builder/fonts/LICENSE.txt",
+    "web/templates/*.html",
+    "web/templates/partials/*.html",
+    "web/static/*",
 ]
 
 [tool.pytest.ini_options]
