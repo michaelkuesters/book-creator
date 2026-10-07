@@ -70,7 +70,7 @@ Scenario: Stop the studio
 
 ### Escalation
 
-- If the browser distrusts the local Caddy CA, the operator runs `make trust` once per machine (may need elevation), then restarts the browser.
+- If the browser distrusts the local Caddy CA, the operator runs `make trust` once per machine (may need elevation), then **fully quits** the browser (all Chrome processes — menu → Exit or `chrome://restart`) and reopens `https://books.localhost:17443` (not `127.0.0.1`).
 - If `*.localhost` does not resolve on an unusual host, the operator adds a hosts entry for `books.localhost` → `127.0.0.1`.
 - If `17443` is already taken on this machine, stop and change the documented port in this feature (and matching Compose/Caddyfile/docs) rather than silently overlapping another app.
 

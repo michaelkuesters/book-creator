@@ -17,7 +17,7 @@
   --sans: "Source Sans 3", "Segoe UI", sans-serif;
 }
 html[data-theme="dark"] {
-  --ink: #e6edf5;
+  --ink: #6c87a6;
   --accent: #3db8c5;
   --accent-deep: #2a96a2;
   --paper: #121820;
@@ -437,17 +437,19 @@ main { padding: 1.6rem 1.75rem 2.5rem; }
   border-radius: 12px;
   overflow: hidden;
   background: var(--panel);
-  transition: background-color 0.2s ease;
   isolation: isolate;
 }
-.wysiwyg-host.is-dirty {
-  background: color-mix(in srgb, #8eb6e0 28%, var(--panel));
+.wysiwyg-host .bc-unsaved-add {
+  background: color-mix(in srgb, #6a9bd1 42%, transparent);
+  border-radius: 2px;
 }
-.wysiwyg-host.is-dirty .toastui-editor-defaultUI,
-.wysiwyg-host.is-dirty .toastui-editor-md-container,
-.wysiwyg-host.is-dirty .toastui-editor-ww-container,
-.wysiwyg-host.is-dirty .toastui-editor-contents {
-  background: transparent !important;
+.wysiwyg-host .bc-unsaved-del {
+  opacity: 0.1;
+  text-decoration: line-through;
+  text-decoration-thickness: from-font;
+  white-space: pre-wrap;
+  pointer-events: none;
+  user-select: none;
 }
 .wysiwyg-host .toastui-editor-defaultUI {
   border: 0;

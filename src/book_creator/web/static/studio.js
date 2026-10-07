@@ -1,9 +1,12 @@
 (function () {
   const IDLE_MS = 10000;
+  const UNSAVED_META = "bcUnsaved";
   let editor = null;
   let dirty = false;
   let saving = false;
   let timer = null;
+  let markBaseline = function () {};
+  let ignoringBaselineTr = false;
 
   function setSaveStatus(text, state) {
     const el = document.getElementById("save-status");
@@ -52,8 +55,7 @@
 
   function setDirty(next) {
     dirty = next;
-    const host = document.getElementById("wysiwyg-editor");
-    if (host) host.classList.toggle("is-dirty", dirty);
+    if (!dirty) markBaseline();
   }
 
   function scheduleSave() {
@@ -61,6 +63,240 @@
     setSaveStatus("Unsaved changes — autosaves after 10s idle", "dirty");
     clearTimeout(timer);
     timer = setTimeout(saveNow, IDLE_MS);
+  }
+
+  /** Index document text the same way as textBetween(..., "\\n", "\\n"). */
+  function indexDocText(doc) {
+    var text = "";
+    var posAt = [];
+    var first = true;
+    doc.nodesBetween(0, doc.content.size, function (node, pos) {
+      var leaf = "";
+      if (node.isText) {
+        leaf = node.text;
+      } else if (node.isLeaf) {
+        leaf = "\n";
+      }
+      if (node.isBlock && (node.isTextblock || node.isLeaf) && !first) {
+        posAt.push(pos);
+        text += "\n";
+      }
+      if (node.isBlock && (node.isTextblock || node.isLeaf)) first = false;
+      if (node.isText) {
+        for (var i = 0; i < node.text.length; i++) {
+          posAt.push(pos + i);
+          text += node.text.charAt(i);
+        }
+      } else if (node.isLeaf && leaf) {
+        posAt.push(pos);
+        text += leaf;
+      }
+    });
+    return { text: text, posAt: posAt };
+  }
+
+  /** Myers O(ND) char diff → [[op, text], ...] with op -1|0|1. */
+  function diffChars(a, b) {
+    if (a === b) return a ? [[0, a]] : [];
+    if (!a) return [[1, b]];
+    if (!b) return [[-1, a]];
+
+    var n = a.length;
+    var m = b.length;
+    var max = n + m;
+    var offset = max;
+    var v = new Array(2 * max + 1);
+    var trace = [];
+    var d;
+    var k;
+    var x;
+    var y;
+
+    v[offset + 1] = 0;
+    outer: for (d = 0; d <= max; d++) {
+      trace.push(v.slice());
+      for (k = -d; k <= d; k += 2) {
+        if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) {
+          x = v[offset + k + 1];
+        } else {
+          x = v[offset + k - 1] + 1;
+        }
+        y = x - k;
+        while (x < n && y < m && a.charAt(x) === b.charAt(y)) {
+          x++;
+          y++;
+        }
+        v[offset + k] = x;
+        if (x >= n && y >= m) break outer;
+      }
+    }
+
+    var edits = [];
+    x = n;
+    y = m;
+    for (; d > 0; d--) {
+      var vPrev = trace[d];
+      k = x - y;
+      var prevK =
+        k === -d || (k !== d && vPrev[offset + k - 1] < vPrev[offset + k + 1])
+          ? k + 1
+          : k - 1;
+      var prevX = vPrev[offset + prevK];
+      var prevY = prevX - prevK;
+      while (x > prevX && y > prevY) {
+        edits.push([0, a.charAt(--x)]);
+        y--;
+      }
+      if (d > 0) {
+        if (x > prevX) edits.push([-1, a.charAt(--x)]);
+        else edits.push([1, b.charAt(--y)]);
+      }
+    }
+    while (x > 0 && y > 0) {
+      edits.push([0, a.charAt(--x)]);
+      y--;
+    }
+    while (x > 0) edits.push([-1, a.charAt(--x)]);
+    while (y > 0) edits.push([1, b.charAt(--y)]);
+    edits.reverse();
+
+    var merged = [];
+    for (var i = 0; i < edits.length; i++) {
+      var last = merged[merged.length - 1];
+      if (last && last[0] === edits[i][0]) last[1] += edits[i][1];
+      else merged.push([edits[i][0], edits[i][1]]);
+    }
+    return merged;
+  }
+
+  function gapPos(posAt, offset, doc) {
+    if (!posAt.length) return 1;
+    if (offset >= posAt.length) return posAt[posAt.length - 1] + 1;
+    return posAt[offset];
+  }
+
+  function pushInlineRuns(out, Decoration, posAt, start, end) {
+    var runFrom = null;
+    var prev = null;
+    for (var i = start; i < end; i++) {
+      var p = posAt[i];
+      if (p == null) continue;
+      if (runFrom == null) {
+        runFrom = p;
+        prev = p;
+      } else if (p !== prev + 1) {
+        out.push(Decoration.inline(runFrom, prev + 1, { class: "bc-unsaved-add" }));
+        runFrom = p;
+        prev = p;
+      } else {
+        prev = p;
+      }
+    }
+    if (runFrom != null) {
+      out.push(Decoration.inline(runFrom, prev + 1, { class: "bc-unsaved-add" }));
+    }
+  }
+
+  function decorationsForDiff(doc, baseline, Decoration, DecorationSet) {
+    var indexed = indexDocText(doc);
+    if (indexed.text === baseline) return DecorationSet.empty;
+    var diffs = diffChars(baseline, indexed.text);
+    var decos = [];
+    var newOffset = 0;
+    var delKey = 0;
+    for (var i = 0; i < diffs.length; i++) {
+      var op = diffs[i][0];
+      var chunk = diffs[i][1];
+      if (op === 0) {
+        newOffset += chunk.length;
+      } else if (op === 1) {
+        pushInlineRuns(decos, Decoration, indexed.posAt, newOffset, newOffset + chunk.length);
+        newOffset += chunk.length;
+      } else {
+        (function (text, at) {
+          var key = "bc-del-" + delKey++;
+          decos.push(
+            Decoration.widget(
+              at,
+              function () {
+                var span = document.createElement("span");
+                span.className = "bc-unsaved-del";
+                span.textContent = text;
+                span.setAttribute("contenteditable", "false");
+                return span;
+              },
+              { side: -1, key: key }
+            )
+          );
+        })(chunk, gapPos(indexed.posAt, newOffset, doc));
+      }
+    }
+    return DecorationSet.create(doc, decos);
+  }
+
+  function unsavedDiffPlugin(context) {
+    var Plugin = context.pmState.Plugin;
+    var PluginKey = context.pmState.PluginKey;
+    var Decoration = context.pmView.Decoration;
+    var DecorationSet = context.pmView.DecorationSet;
+    var key = new PluginKey("bcUnsavedDiff");
+    var viewRef = null;
+
+    markBaseline = function () {
+      if (!viewRef) return;
+      var text = indexDocText(viewRef.state.doc).text;
+      var tr = viewRef.state.tr.setMeta(UNSAVED_META, { baseline: text });
+      tr.setMeta("addToHistory", false);
+      ignoringBaselineTr = true;
+      try {
+        viewRef.dispatch(tr);
+      } finally {
+        ignoringBaselineTr = false;
+      }
+    };
+
+    return {
+      wysiwygPlugins: [
+        function () {
+          return new Plugin({
+            key: key,
+            state: {
+              init: function (_config, state) {
+                return { baseline: indexDocText(state.doc).text };
+              },
+              apply: function (tr, value, _old, state) {
+                var meta = tr.getMeta(UNSAVED_META);
+                if (meta && typeof meta.baseline === "string") {
+                  return { baseline: meta.baseline };
+                }
+                if (!tr.docChanged) return value;
+                return value;
+              },
+            },
+            props: {
+              decorations: function (state) {
+                var pluginState = key.getState(state);
+                if (!pluginState) return null;
+                return decorationsForDiff(
+                  state.doc,
+                  pluginState.baseline,
+                  Decoration,
+                  DecorationSet
+                );
+              },
+            },
+            view: function (editorView) {
+              viewRef = editorView;
+              return {
+                destroy: function () {
+                  if (viewRef === editorView) viewRef = null;
+                },
+              };
+            },
+          });
+        },
+      ],
+    };
   }
 
   function autosaveUrl(form) {
@@ -160,6 +396,7 @@
       usageStatistics: false,
       theme: theme,
       initialValue: initial,
+      plugins: [unsavedDiffPlugin],
       toolbarItems: [
         ["heading", "bold", "italic", "strike"],
         ["hr", "quote"],
@@ -186,7 +423,10 @@
       if (root) root.classList.toggle("toastui-editor-dark", next === "dark");
     });
 
-    editor.on("change", scheduleSave);
+    editor.on("change", function () {
+      if (ignoringBaselineTr) return;
+      scheduleSave();
+    });
 
     form.addEventListener("submit", function () {
       syncTextarea();

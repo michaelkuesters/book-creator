@@ -47,5 +47,8 @@ def test_makefile_trust_exports_and_installs_caddy_root_ca():
     assert "scripts/trust-caddy-ca.sh" in text
     script = (ROOT / "scripts" / "trust-caddy-ca.sh").read_text(encoding="utf-8")
     assert "certutil" in script
+    assert "-user Root" in script
+    assert "RunAs" in script
     assert "security add-trusted-cert" in script
     assert "update-ca-certificates" in script
+    assert "books.localhost" in script

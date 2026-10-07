@@ -14,7 +14,19 @@ MINGW* | MSYS* | CYGWIN*)
 	if command -v cygpath >/dev/null 2>&1; then
 		win_cert="$(cygpath -w "$cert")"
 	fi
-	certutil -addstore -user Root "$win_cert"
+	# Current user store (no elevation).
+	certutil -addstore -f -user Root "$win_cert"
+	# Local machine store — Chrome picks this up more reliably; UAC prompt.
+	powershell.exe -NoProfile -Command \
+		"Start-Process -FilePath certutil.exe -ArgumentList @('-addstore','-f','Root','$win_cert') -Verb RunAs -Wait" \
+		|| echo "Local Machine install skipped or cancelled; Current User store still has the CA."
+	if tasklist 2>/dev/null | grep -qi '[Cc]hrome.exe'; then
+		echo ""
+		echo "Chrome is still running. It will keep showing Not secure until you fully quit it:"
+		echo "  Chrome menu → Exit   (or chrome://restart)"
+		echo "Then open exactly: https://books.localhost:17443"
+		echo "(not https://127.0.0.1:17443 — the cert is only valid for books.localhost)"
+	fi
 	;;
 Darwin)
 	keychain="$HOME/Library/Keychains/login.keychain-db"
@@ -40,5 +52,6 @@ Linux)
 	;;
 esac
 
+echo ""
 echo "Installed Caddy local root CA from $cert"
-echo "Restart the browser if https://books.localhost:17443 still shows Not secure."
+echo "Fully quit and reopen the browser, then open https://books.localhost:17443"

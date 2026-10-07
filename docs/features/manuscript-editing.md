@@ -42,7 +42,8 @@ Scenario: Autosave on leave
 Scenario: Unsaved edits highlight
   Given the operator has unsaved edits in the chapter editor
   When the editor is dirty
-  Then the editor surface shows a soft blue backdrop
+  Then characters added since the last save are highlighted
+  And characters removed since the last save remain visible at 90% transparency with strikethrough
 
 Scenario: Reorder chapters from Write
   Given the Write view with two or more chapters
@@ -102,7 +103,7 @@ Scenario: Insert illustration into a chapter
 - Embedded images in Markdown use `resources/<filename>` so Pandoc’s manuscript resource path still resolves them.
 - The chapter editor is WYSIWYG for reading, Markdown for storage (including autosave and explicit save).
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
-- While the editor is dirty, the editor surface uses a soft blue backdrop.
+- While the editor is dirty, unsaved additions are highlighted in place and unsaved removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop).
 - Paths stay inside the book package; `..` is rejected.
 - `metadata.yaml` and `manuscript/Book.txt` cannot be deleted.
 
@@ -128,7 +129,7 @@ Scenario: Insert illustration into a chapter
 ## Acceptance criteria
 
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
-2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave, Save now, and leave-save use the same endpoint; leave does not use a browser confirm dialog; dirty state shows a soft blue editor backdrop.
+2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave, Save now, and leave-save use the same endpoint; leave does not use a browser confirm dialog; dirty state highlights added characters and shows removed characters struck through at 90% transparency.
 3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown.
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.

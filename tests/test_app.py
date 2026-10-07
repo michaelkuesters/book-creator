@@ -32,6 +32,17 @@ def test_settings_sheet(data_dir):
     assert b".wysiwyg-host .toastui-editor-contents p" in css.content
     assert b".wysiwyg-host .toastui-editor-dark .toastui-editor-contents p" in css.content
     assert b"color: var(--write-ink)" in css.content
+    # Unsaved edits: character-level add/remove cues, not a whole-editor backdrop.
+    assert b".bc-unsaved-add" in css.content
+    assert b".bc-unsaved-del" in css.content
+    assert b"opacity: 0.1" in css.content
+    assert b"text-decoration: line-through" in css.content
+    assert b".wysiwyg-host.is-dirty" not in css.content
+    studio_js = client.get("/static/studio.js")
+    assert studio_js.status_code == 200
+    assert b"unsavedDiffPlugin" in studio_js.content
+    assert b"bc-unsaved-add" in studio_js.content
+    assert b"bc-unsaved-del" in studio_js.content
 
 
 def test_home_and_book_pages(data_dir):
