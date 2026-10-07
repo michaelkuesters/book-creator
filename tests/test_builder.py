@@ -51,7 +51,7 @@ def test_override_job(data_dir, tiny_package):
         encoding="utf-8",
     )
     book = import_book(_zip_tree(tiny_package))
-    job = start_build(book["id"])
+    job = start_build(book["id"], use_override=True)
     deadline = time.time() + 30
     while time.time() < deadline:
         job = get_job(job["id"])

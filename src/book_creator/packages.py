@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import shutil
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -11,6 +12,8 @@ from book_creator import config
 from book_creator.builder.engine import BUNDLED_CSS
 from book_creator.db import session, utcnow
 from book_creator.slug import slugify
+
+COVER_NAMES = ("cover.png", "cover.jpg", "cover.jpeg", "cover.webp")
 
 PROTECTED = {"manuscript/Book.txt", "metadata.yaml"}
 EDITABLE_SUFFIXES = config.EDITABLE_SUFFIXES
@@ -67,6 +70,90 @@ def read_book_txt(root: Path) -> list[str]:
     if not path.is_file():
         return []
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def chapter_title(root: Path, name: str) -> str:
+    path = root / "manuscript" / name
+    if not path.is_file():
+        return Path(name).stem
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                return stripped[2:].strip() or Path(name).stem
+    except OSError:
+        pass
+    return Path(name).stem
+
+
+def list_chapters(root: Path) -> list[dict]:
+    chapters = []
+    for name in read_book_txt(root):
+        chapters.append(
+            {
+                "name": name,
+                "path": f"manuscript/{name}",
+                "title": chapter_title(root, name),
+            }
+        )
+    return chapters
+
+
+def find_cover(root: Path) -> Path | None:
+    resources = root / "manuscript" / "resources"
+    for name in COVER_NAMES:
+        path = resources / name
+        if path.is_file():
+            return path
+    return None
+
+
+def has_cover(root: Path) -> bool:
+    return find_cover(root) is not None
+
+
+def friendly_when(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    delta = now - stamp.astimezone(timezone.utc)
+    seconds = int(delta.total_seconds())
+    if seconds < 60:
+        return "Just now"
+    if seconds < 3600:
+        minutes = seconds // 60
+        return f"{minutes} min ago" if minutes > 1 else "1 min ago"
+    if seconds < 86400:
+        hours = seconds // 3600
+        return f"{hours} hours ago" if hours > 1 else "1 hour ago"
+    if seconds < 86400 * 7:
+        days = seconds // 86400
+        return f"{days} days ago" if days > 1 else "Yesterday"
+    return stamp.astimezone(timezone.utc).strftime("%d %b %Y")
+
+
+def list_library_books() -> list[dict]:
+    books = []
+    for row in list_books():
+        root = book_root(row["id"])
+        meta = load_metadata(root)
+        books.append(
+            {
+                **row,
+                "author": str(meta.get("author") or "").strip(),
+                "subtitle": str(meta.get("subtitle") or "").strip(),
+                "has_cover": has_cover(root),
+                "updated_label": friendly_when(row.get("updated_at")),
+                "chapter_count": len(read_book_txt(root)),
+            }
+        )
+    return books
 
 
 def write_book_txt(root: Path, names: list[str]) -> None:
@@ -133,6 +220,31 @@ def list_editions(root: Path) -> list[dict]:
         if path.is_file() and path.suffix.lower() in {".pdf", ".epub", ".md", ".json"}:
             editions.append({"name": path.name, "bytes": path.stat().st_size})
     return editions
+
+
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+
+def list_assets(root: Path) -> list[dict]:
+    resources = root / "manuscript" / "resources"
+    if not resources.is_dir():
+        return []
+    assets = []
+    for path in sorted(resources.iterdir()):
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        assets.append(
+            {
+                "name": path.name,
+                "path": f"manuscript/resources/{path.name}",
+                "markdown": f"resources/{path.name}",
+                "bytes": path.stat().st_size,
+                "kind": "image" if suffix in IMAGE_SUFFIXES else "file",
+                "is_cover": path.name.lower() in COVER_NAMES,
+            }
+        )
+    return assets
 
 
 def has_override(root: Path) -> bool:

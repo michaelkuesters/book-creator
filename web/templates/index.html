@@ -1,31 +1,77 @@
 {% extends "base.html" %}
+{% block title %}Library · Book Creator{% endblock %}
+{% block body_class %}page-library{% endblock %}
+{% block header_extra %}
+<div class="topbar-actions">
+  <button type="button" class="button ghost" data-open-dialog="new-book">New book</button>
+  <button type="button" class="button" data-open-dialog="import-book">Import</button>
+</div>
+{% endblock %}
 {% block body %}
-<section class="panel">
-  <h2>Books</h2>
+<section class="library">
+  <div class="library-intro">
+    <h1>Library</h1>
+    <p>Choose a book to write, arrange chapters, and publish PDF or EPUB.</p>
+  </div>
+
   {% if books %}
-  <ul class="books">
+  <ul class="shelf">
     {% for book in books %}
     <li>
-      <a href="/books/{{ book.id }}">{{ book.title }}</a>
-      <div class="muted">{{ book.slug }} · updated {{ book.updated_at }}</div>
+      <a class="shelf-item" href="/books/{{ book.id }}">
+        <span class="cover {% if not book.has_cover %}cover-fallback{% endif %}">
+          {% if book.has_cover %}
+          <img src="/books/{{ book.id }}/cover" alt="" loading="lazy">
+          {% else %}
+          <span class="cover-title">{{ book.title }}</span>
+          {% endif %}
+        </span>
+        <span class="shelf-meta">
+          <span class="shelf-title">{{ book.title }}</span>
+          {% if book.author %}<span class="shelf-author">{{ book.author }}</span>{% endif %}
+          <span class="shelf-sub">
+            {% if book.chapter_count %}{{ book.chapter_count }} chapter{% if book.chapter_count != 1 %}s{% endif %} · {% endif %}{{ book.updated_label }}
+          </span>
+        </span>
+      </a>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="muted">No books yet. Create one or upload a Leanpub-style zip.</p>
+  <div class="empty-library">
+    <p>Your library is empty.</p>
+    <div class="row">
+      <button type="button" class="button" data-open-dialog="new-book">Create a book</button>
+      <button type="button" class="button ghost" data-open-dialog="import-book">Import a package</button>
+    </div>
+  </div>
   {% endif %}
 </section>
-<div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 1rem;">
-  <form class="panel" method="post" action="/books">
+
+<dialog id="new-book" class="sheet">
+  <form method="post" action="/books">
     <h2>New book</h2>
-    <label>Title <input name="title" value="Untitled book"></label>
-    <div class="row"><button type="submit">Create empty package</button></div>
+    <p class="muted">Start a blank manuscript you can fill chapter by chapter.</p>
+    <label>Title <input name="title" value="Untitled book" autofocus></label>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit">Create</button>
+    </div>
   </form>
-  <form class="panel" method="post" action="/books/import" enctype="multipart/form-data">
-    <h2>Upload package</h2>
-    <p class="muted">Zip with <code>metadata.yaml</code> and <code>manuscript/</code>.</p>
-    <label>Package <input type="file" name="package" accept=".zip" required></label>
-    <div class="row"><button type="submit">Import zip</button></div>
+</dialog>
+
+<dialog id="import-book" class="sheet">
+  <form method="post" action="/books/import" enctype="multipart/form-data">
+    <h2>Import book</h2>
+    <p class="muted">Upload a Leanpub-style zip package.</p>
+    <label>Package file <input type="file" name="package" accept=".zip" required></label>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit">Import</button>
+    </div>
   </form>
-</div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="/static/library.js"></script>
 {% endblock %}

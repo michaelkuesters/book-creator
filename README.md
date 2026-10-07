@@ -2,6 +2,8 @@
 
 Local Leanpub-style studio: store Markdown packages, edit them, and generate a reading PDF and EPUB.
 
+Process for agents and humans: [docs/DEVELOPMENT-GUIDELINES.md](docs/DEVELOPMENT-GUIDELINES.md). Feature list: [docs/features/README.md](docs/features/README.md). Delivery artifacts follow [Agentic Continuous Delivery](https://beyond.minimumcd.org/docs/agentic-cd/).
+
 ## Package contract
 
 A raw package is a zip (optional single wrapper folder) containing:
@@ -15,7 +17,7 @@ A raw package is a zip (optional single wrapper folder) containing:
 ## Build behaviour
 
 - **Default:** the studio builder (Pandoc + ReportLab) writes combined Markdown, PDF and EPUB under `dist/`.
-- **Override:** if `scripts/build_book.py` exists, that script is run instead, with the package root as the working directory.
+- **Override:** packages may ship `scripts/build_book.py`. The studio ignores it unless you check **Use package override script** on the book page.
 
 ## Run
 

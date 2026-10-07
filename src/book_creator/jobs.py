@@ -26,18 +26,18 @@ def get_job(job_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def start_build(book_id: str) -> dict:
+def start_build(book_id: str, use_override: bool = False) -> dict:
     job_id = str(uuid4())
     now = utcnow()
     root = book_root(book_id)
-    override = has_override(root)
+    override = bool(use_override and has_override(root))
     with session() as conn:
         conn.execute(
             """INSERT INTO jobs (id, book_id, status, used_override, log, error, created_at)
                VALUES (?, ?, 'queued', ?, '', NULL, ?)""",
             (job_id, book_id, int(override), now),
         )
-    thread = Thread(target=_run_job, args=(job_id, book_id), daemon=True)
+    thread = Thread(target=_run_job, args=(job_id, book_id, override), daemon=True)
     thread.start()
     return get_job(job_id) or {}
 
@@ -47,20 +47,22 @@ def _append_log(job_id: str, text: str) -> None:
         conn.execute("UPDATE jobs SET log = log || ? WHERE id = ?", (text, job_id))
 
 
-def _run_job(job_id: str, book_id: str) -> None:
+def _run_job(job_id: str, book_id: str, use_override: bool = False) -> None:
     root = book_root(book_id)
     with session() as conn:
         conn.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (job_id,))
     try:
-        override = has_override(root)
-        if override:
+        if use_override and has_override(root):
             _append_log(job_id, "Using package override scripts/build_book.py\n")
             report_text = _run_override(root)
             _append_log(job_id, report_text + "\n")
         else:
             _append_log(job_id, "Using default studio builder\n")
             report = build_editions(root)
-            _append_log(job_id, f"word_count={report.get('word_count')} pdf_pages={report.get('pdf_pages')}\n")
+            _append_log(
+                job_id,
+                f"word_count={report.get('word_count')} pdf_pages={report.get('pdf_pages')}\n",
+            )
         with session() as conn:
             conn.execute(
                 "UPDATE jobs SET status = 'succeeded', finished_at = ?, error = NULL WHERE id = ?",

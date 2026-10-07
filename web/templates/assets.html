@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "partials/studio_nav.html" import studio_nav, publish_dialog %}
+{% block title %}Assets · {{ book.title }}{% endblock %}
+{% block body_class %}page-studio{% endblock %}
+{% block header_sub %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/">Library</a>
+  <span aria-hidden="true">/</span>
+  <a href="/books/{{ book.id }}">{{ book.title }}</a>
+  <span aria-hidden="true">/</span>
+  <span>Assets</span>
+</nav>
+{% endblock %}
+{% block header_extra %}
+{{ studio_nav(book, nav, editions, building) }}
+{% endblock %}
+{% block body %}
+<section class="assets-page">
+  <header class="library-intro">
+    <h1>Assets</h1>
+    <p>Upload covers and illustrations here. In the writer, use <strong>Insert illustration</strong> to place them in a chapter.</p>
+  </header>
+
+  <form class="panel upload-panel" method="post" action="/books/{{ book.id }}/resources" enctype="multipart/form-data">
+    <h2>Upload</h2>
+    <p class="muted">Images go into <code>manuscript/resources/</code>. Name the cover file <code>cover.png</code> to use it as the book cover.</p>
+    <label>File <input type="file" name="resource" accept="image/*,.pdf,.svg" required></label>
+    <div class="row"><button type="submit">Upload asset</button></div>
+  </form>
+
+  {% if assets %}
+  <ul class="asset-gallery">
+    {% for asset in assets %}
+    <li class="asset-card">
+      {% if asset.kind == 'image' %}
+      <a class="asset-thumb" href="/books/{{ book.id }}/assets/{{ asset.name }}" target="_blank" rel="noopener">
+        <img src="/books/{{ book.id }}/assets/{{ asset.name }}" alt="{{ asset.name }}">
+      </a>
+      {% else %}
+      <div class="asset-thumb asset-file">{{ asset.name.split('.')[-1]|upper }}</div>
+      {% endif %}
+      <div class="asset-info">
+        <strong>{{ asset.name }}</strong>
+        {% if asset.is_cover %}<span class="pill">Cover</span>{% endif %}
+        <code class="asset-md">![{{ asset.name.rsplit('.', 1)[0] }}]({{ asset.markdown }})</code>
+        <p class="muted">Paste that Markdown into a chapter, or insert from Write.</p>
+        <div class="row">
+          <a class="button ghost" href="/books/{{ book.id }}">Open writer</a>
+          <form method="post" action="/books/{{ book.id }}/files/delete" onsubmit="return confirm('Delete this asset?');">
+            <input type="hidden" name="path" value="{{ asset.path }}">
+            <button class="danger ghost" type="submit">Delete</button>
+          </form>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-library">
+    <p>No assets uploaded yet.</p>
+  </div>
+  {% endif %}
+</section>
+{{ publish_dialog(book, has_override, editions, jobs, building) }}
+{% endblock %}
+{% block scripts %}
+<script src="/static/studio.js?v=4"></script>
+{% endblock %}

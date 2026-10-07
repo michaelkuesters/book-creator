@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "partials/studio_nav.html" import studio_nav, publish_dialog %}
+{% block title %}Details · {{ book.title }}{% endblock %}
+{% block body_class %}page-studio{% endblock %}
+{% block header_sub %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/">Library</a>
+  <span aria-hidden="true">/</span>
+  <a href="/books/{{ book.id }}">{{ book.title }}</a>
+  <span aria-hidden="true">/</span>
+  <span>Details</span>
+</nav>
+{% endblock %}
+{% block header_extra %}
+{{ studio_nav(book, nav, editions, building) }}
+{% endblock %}
+{% block body %}
+<div class="settings-layout">
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Book details</h2>
+      <p class="muted">Shown on the cover page and in published editions.</p>
+    </header>
+    <form method="post" action="/books/{{ book.id }}/metadata">
+      <label>Title <input name="title" value="{{ meta.title }}"></label>
+      <label>Subtitle <input name="subtitle" value="{{ meta.subtitle }}"></label>
+      <label>Author <input name="author" value="{{ meta.author }}"></label>
+      <label>Language <input name="lang" value="{{ meta.lang }}"></label>
+      <label>Rights <input name="rights" value="{{ meta.rights }}"></label>
+      <label>Date <input name="date" value="{{ meta.date }}"></label>
+      <label>Description <textarea name="description" rows="4">{{ meta.description }}</textarea></label>
+      <div class="row"><button type="submit">Save details</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Chapter order</h2>
+      <p class="muted">One manuscript filename per line. This is the reading order for PDF and EPUB.</p>
+    </header>
+    <form method="post" action="/books/{{ book.id }}/order">
+      <label class="sr-only">Order<textarea name="order" rows="18">{{ order | join('\n') }}</textarea></label>
+      <div class="row"><button type="submit">Save order</button></div>
+    </form>
+  </section>
+
+  <section class="panel danger-panel">
+    <header class="panel-head">
+      <h2>Danger zone</h2>
+      <p class="muted">Removing a book deletes its manuscript from this studio.</p>
+    </header>
+    <form method="post" action="/books/{{ book.id }}/delete" onsubmit="return confirm('Remove this book from your library?');">
+      <div class="row"><button class="danger" type="submit">Remove from library</button></div>
+    </form>
+  </section>
+</div>
+{{ publish_dialog(book, has_override, editions, jobs, building) }}
+{% endblock %}
+{% block scripts %}
+<script src="/static/studio.js?v=4"></script>
+{% endblock %}

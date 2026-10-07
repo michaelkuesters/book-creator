@@ -1,91 +1,120 @@
 {% extends "base.html" %}
-{% block title %}{{ book.title }}{% endblock %}
+{% from "partials/studio_nav.html" import studio_nav, publish_dialog %}
+{% block title %}{{ book.title }} · Book Creator{% endblock %}
+{% block body_class %}page-studio{% endblock %}
+{% block header_sub %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/">Library</a>
+  <span aria-hidden="true">/</span>
+  <a href="/books/{{ book.id }}">{{ book.title }}</a>
+</nav>
+{% endblock %}
 {% block header_extra %}
-<div class="row">
-  <a class="button secondary" href="/books/{{ book.id }}/export.zip">Download source zip</a>
-  <a class="button secondary" href="/books/{{ book.id }}/export.zip?dist=true">Download with editions</a>
-</div>
+{{ studio_nav(book, nav, editions, building) }}
 {% endblock %}
 {% block body %}
-<div class="grid">
-  <aside class="panel">
-    <h2>Manuscript</h2>
-    <p class="muted">{% if has_override %}Override builder present{% else %}Default studio builder{% endif %}</p>
-    <ul class="files">
-      {% for item in files %}
-      <li><a class="{% if item.path == selected %}active{% endif %}" href="/books/{{ book.id }}?file={{ item.path }}">{{ item.path }}</a></li>
+<div class="studio studio-write"
+     data-book-id="{{ book.id }}"
+     data-asset-base="/books/{{ book.id }}/assets/">
+  <aside class="sidebar">
+    <div class="sidebar-book">
+      {% if has_cover %}
+      <img class="sidebar-cover" src="/books/{{ book.id }}/cover" alt="">
+      {% endif %}
+      <div>
+        <p class="sidebar-title">{{ book.title }}</p>
+        {% if meta.author %}<p class="muted">{{ meta.author }}</p>{% endif %}
+      </div>
+    </div>
+
+    <h2>Contents</h2>
+    <ul class="chapters">
+      {% for chapter in chapters %}
+      <li>
+        <a class="{% if chapter.path == selected %}active{% endif %}"
+           href="/books/{{ book.id }}?file={{ chapter.path }}"
+           title="{{ chapter.name }}">{{ chapter.title }}</a>
+      </li>
+      {% else %}
+      <li class="muted">No chapters yet.</li>
       {% endfor %}
     </ul>
-    <form method="post" action="/books/{{ book.id }}/files/new">
-      <label>Add Markdown file <input name="name" placeholder="04-new-chapter.md" required></label>
+
+    <form class="sidebar-form" method="post" action="/books/{{ book.id }}/files/new">
+      <label>Add chapter <input name="name" placeholder="Chapter title" required></label>
       <div class="row"><button type="submit">Add chapter</button></div>
     </form>
-    <form method="post" action="/books/{{ book.id }}/resources" enctype="multipart/form-data">
-      <label>Add resource <input type="file" name="resource" required></label>
-      <div class="row"><button type="submit">Upload</button></div>
-    </form>
-    <form method="post" action="/books/{{ book.id }}/order">
-      <label>Book.txt order<textarea name="order" rows="10">{{ order | join('\n') }}</textarea></label>
-      <div class="row"><button type="submit">Save order</button></div>
-    </form>
   </aside>
-  <section class="panel">
-    <h2>{{ selected }}</h2>
-    {% if selected == 'metadata.yaml' %}
-    <form method="post" action="/books/{{ book.id }}/metadata">
-      <label>Title <input name="title" value="{{ meta.title }}"></label>
-      <label>Subtitle <input name="subtitle" value="{{ meta.subtitle }}"></label>
-      <label>Author <input name="author" value="{{ meta.author }}"></label>
-      <label>Language <input name="lang" value="{{ meta.lang }}"></label>
-      <label>Rights <input name="rights" value="{{ meta.rights }}"></label>
-      <label>Date <input name="date" value="{{ meta.date }}"></label>
-      <label>Description <textarea name="description" rows="4">{{ meta.description }}</textarea></label>
-      <div class="row"><button type="submit">Save metadata</button></div>
-    </form>
-    {% elif editable %}
-    <form method="post" action="/books/{{ book.id }}/files">
-      <input type="hidden" name="path" value="{{ selected }}">
-      <textarea class="editor" name="content">{{ content }}</textarea>
-      <div class="row">
-        <button type="submit">Save file</button>
+
+  <section class="editor-panel">
+    {% if selected and editable %}
+    <header class="panel-head editor-header">
+      <div>
+        <h2>{{ selected_title }}</h2>
+        <p class="muted">{{ selected.split('/')[-1] }} · edits autosave as Markdown</p>
       </div>
+      <div class="row editor-toolbar-extra">
+        <button type="button" class="button ghost" id="insert-asset-btn">Insert illustration</button>
+        <button type="button" class="button ghost" id="save-now-btn">Save now</button>
+      </div>
+    </header>
+    <form id="editor-form" method="post" action="/books/{{ book.id }}/files">
+      <input type="hidden" name="path" value="{{ selected }}">
+      <textarea class="editor" name="content" id="editor-content" hidden>{{ content }}</textarea>
+      <div id="wysiwyg-editor" class="wysiwyg-host"></div>
     </form>
     {% if selected not in ['manuscript/Book.txt', 'metadata.yaml'] %}
-    <form method="post" action="/books/{{ book.id }}/files/delete" onsubmit="return confirm('Delete this file?');">
+    <form method="post" action="/books/{{ book.id }}/files/delete" onsubmit="return confirm('Delete this chapter?');">
       <input type="hidden" name="path" value="{{ selected }}">
-      <div class="row"><button class="danger" type="submit">Delete file</button></div>
+      <div class="row"><button class="danger ghost" type="submit">Delete chapter</button></div>
     </form>
     {% endif %}
+    {% elif not chapters %}
+    <header class="panel-head">
+      <h2>Start writing</h2>
+      <p class="muted">Add your first chapter from the sidebar.</p>
+    </header>
     {% else %}
-    <p class="muted">Binary file. Download the source zip or replace it by uploading a resource with the same name.</p>
+    <header class="panel-head">
+      <h2>Choose a chapter</h2>
+      <p class="muted">Select a chapter from the contents list.</p>
+    </header>
     {% endif %}
   </section>
-  <aside class="panel">
-    <h2>Generate</h2>
-    <form method="post" action="/books/{{ book.id }}/build">
-      <div class="row"><button type="submit">Build PDF and EPUB</button></div>
-    </form>
-    <h3>Editions</h3>
-    {% if editions %}
-    <ul class="files">
-      {% for edition in editions %}
-      <li><a href="/books/{{ book.id }}/editions/{{ edition.name }}">{{ edition.name }}</a></li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="muted">No editions yet.</p>
-    {% endif %}
-    <h3>Jobs</h3>
-    {% for job in jobs[:5] %}
-    <p class="muted">{{ job.status }} · {{ job.created_at }}{% if job.used_override %} · override{% endif %}</p>
-    {% if job.log %}<div class="log">{{ job.log }}</div>{% endif %}
-    {% if job.error %}<div class="log">{{ job.error }}</div>{% endif %}
-    {% else %}
-    <p class="muted">No builds yet.</p>
-    {% endfor %}
-    <form method="post" action="/books/{{ book.id }}/delete" onsubmit="return confirm('Delete this book from the studio?');">
-      <div class="row"><button class="danger" type="submit">Delete book</button></div>
-    </form>
-  </aside>
 </div>
+
+<dialog id="asset-picker" class="sheet asset-sheet">
+  <div class="sheet-body">
+    <h2>Insert illustration</h2>
+    <p class="muted">Pick an existing asset or upload a new image. It is inserted as Markdown and kept that way on save.</p>
+    <form id="inline-upload-form" class="inline-upload">
+      <label>Upload image
+        <input type="file" name="resource" id="inline-upload-input" accept="image/*" required>
+      </label>
+      <div class="row"><button type="submit">Upload &amp; insert</button></div>
+    </form>
+    <div class="asset-picker-grid" id="asset-picker-grid">
+      {% for asset in assets if asset.kind == 'image' %}
+      <button type="button" class="asset-pick" data-markdown="{{ asset.markdown }}" data-url="/books/{{ book.id }}/assets/{{ asset.name }}" data-name="{{ asset.name }}">
+        <img src="/books/{{ book.id }}/assets/{{ asset.name }}" alt="{{ asset.name }}">
+        <span>{{ asset.name }}</span>
+      </button>
+      {% else %}
+      <p class="muted" id="no-assets-hint">No images yet. Upload one above.</p>
+      {% endfor %}
+    </div>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+    </div>
+  </div>
+</dialog>
+
+{{ publish_dialog(book, has_override, editions, jobs, building) }}
+{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css">
+{% endblock %}
+{% block scripts %}
+<script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
+<script src="/static/studio.js?v=4"></script>
 {% endblock %}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -16,12 +16,16 @@ from book_creator.packages import (
     create_book,
     delete_book,
     delete_file,
+    find_cover,
+    friendly_when,
     get_book_row,
     has_override,
     import_book,
-    list_books,
+    list_assets,
+    list_chapters,
     list_editions,
     list_files,
+    list_library_books,
     load_metadata,
     read_book_txt,
     read_text_file,
@@ -55,9 +59,33 @@ def _book_or_404(book_id: str) -> dict:
     return row
 
 
+def _wants_json(request: Request, flag: bool = False) -> bool:
+    return flag or "application/json" in request.headers.get("accept", "")
+
+
+def _studio_context(book_id: str, building: str | None = None) -> dict:
+    book = _book_or_404(book_id)
+    root = book_root(book_id)
+    editions = list_editions(root)
+    jobs = list_jobs(book_id)
+    for job in jobs:
+        job["when"] = friendly_when(job.get("created_at"))
+    return {
+        "book": book,
+        "meta": load_metadata(root),
+        "chapters": list_chapters(root),
+        "editions": editions,
+        "jobs": jobs,
+        "has_override": has_override(root),
+        "has_cover": find_cover(root) is not None,
+        "assets": list_assets(root),
+        "building": building,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"books": list_books()})
+    return templates.TemplateResponse(request, "index.html", {"books": list_library_books()})
 
 
 @app.post("/books")
@@ -77,38 +105,54 @@ async def import_zip(package: UploadFile = File(...)):
 
 
 @app.get("/books/{book_id}", response_class=HTMLResponse)
-def book_page(request: Request, book_id: str, file: str | None = None):
-    book = _book_or_404(book_id)
+def book_page(request: Request, book_id: str, file: str | None = None, building: str | None = None):
+    ctx = _studio_context(book_id, building)
     root = book_root(book_id)
-    files = list_files(root)
-    chapters = [item for item in files if item["kind"] == "chapter"]
+    chapters = ctx["chapters"]
     selected = file
-    if not selected:
-        order = read_book_txt(root)
-        selected = f"manuscript/{order[0]}" if order else "metadata.yaml"
+    if not selected or selected in {"metadata.yaml", "manuscript/Book.txt"}:
+        selected = chapters[0]["path"] if chapters else None
     content = ""
-    editable = True
-    try:
-        content = read_text_file(root, selected)
-    except PackageError:
-        editable = False
-    return templates.TemplateResponse(
-        request,
-        "book.html",
+    editable = False
+    selected_title = "No chapter yet"
+    if selected:
+        try:
+            content = read_text_file(root, selected)
+            editable = True
+        except PackageError:
+            editable = False
+        selected_title = next((c["title"] for c in chapters if c["path"] == selected), Path(selected).name)
+    ctx.update(
         {
-            "book": book,
-            "meta": load_metadata(root),
-            "files": files,
-            "chapters": chapters,
-            "order": read_book_txt(root),
+            "files": list_files(root),
             "selected": selected,
+            "selected_title": selected_title,
             "content": content,
             "editable": editable,
-            "editions": list_editions(root),
-            "jobs": list_jobs(book_id),
-            "has_override": has_override(root),
-        },
+            "nav": "write",
+        }
     )
+    return templates.TemplateResponse(request, "book.html", ctx)
+
+
+@app.get("/books/{book_id}/details", response_class=HTMLResponse)
+def details_page(request: Request, book_id: str):
+    ctx = _studio_context(book_id)
+    root = book_root(book_id)
+    ctx.update(
+        {
+            "order": read_book_txt(root),
+            "nav": "details",
+        }
+    )
+    return templates.TemplateResponse(request, "details.html", ctx)
+
+
+@app.get("/books/{book_id}/assets", response_class=HTMLResponse)
+def assets_page(request: Request, book_id: str):
+    ctx = _studio_context(book_id)
+    ctx["nav"] = "assets"
+    return templates.TemplateResponse(request, "assets.html", ctx)
 
 
 @app.post("/books/{book_id}/delete")
@@ -145,14 +189,16 @@ def save_metadata(
     )
     write_metadata(root, meta)
     touch_book(book_id, title)
-    return RedirectResponse(f"/books/{book_id}?file=metadata.yaml", status_code=303)
+    return RedirectResponse(f"/books/{book_id}/details", status_code=303)
 
 
 @app.post("/books/{book_id}/files")
 def save_file(
+    request: Request,
     book_id: str,
     path: str = Form(...),
     content: str = Form(""),
+    autosave: bool = False,
 ):
     _book_or_404(book_id)
     try:
@@ -160,6 +206,8 @@ def save_file(
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request, autosave):
+        return JSONResponse({"ok": True, "path": path})
     return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
 
 
@@ -173,11 +221,12 @@ def add_file(
     if not filename.endswith(".md"):
         filename += ".md"
     relative = f"manuscript/{filename}"
+    title = Path(filename).stem.replace("-", " ").replace("_", " ").strip() or "Chapter"
     try:
         write_text_file(
             book_root(book_id),
             relative,
-            f"# {Path(filename).stem}\n\n",
+            f"# {title}\n\n",
             add_to_book=True,
         )
         touch_book(book_id)
@@ -187,18 +236,27 @@ def add_file(
 
 
 @app.post("/books/{book_id}/files/delete")
-def remove_file(book_id: str, path: str = Form(...)):
+def remove_file(request: Request, book_id: str, path: str = Form(...)):
     _book_or_404(book_id)
     try:
         delete_file(book_root(book_id), path)
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if path.startswith("manuscript/resources/"):
+        if _wants_json(request):
+            return JSONResponse({"ok": True})
+        return RedirectResponse(f"/books/{book_id}/assets", status_code=303)
     return RedirectResponse(f"/books/{book_id}", status_code=303)
 
 
 @app.post("/books/{book_id}/resources")
-async def upload_resource(book_id: str, resource: UploadFile = File(...)):
+async def upload_resource(
+    request: Request,
+    book_id: str,
+    resource: UploadFile = File(...),
+    json: bool = False,
+):
     _book_or_404(book_id)
     name = Path(resource.filename or "resource.bin").name
     data = await resource.read()
@@ -207,6 +265,18 @@ async def upload_resource(book_id: str, resource: UploadFile = File(...)):
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request, json):
+        return JSONResponse(
+            {
+                "ok": True,
+                "name": name,
+                "markdown": f"resources/{name}",
+                "url": f"/books/{book_id}/assets/{name}",
+            }
+        )
+    referer = request.headers.get("referer", "")
+    if "/assets" in referer:
+        return RedirectResponse(f"/books/{book_id}/assets", status_code=303)
     return RedirectResponse(f"/books/{book_id}", status_code=303)
 
 
@@ -219,14 +289,16 @@ def save_order(book_id: str, order: str = Form(...)):
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return RedirectResponse(f"/books/{book_id}?file=manuscript/Book.txt", status_code=303)
+    return RedirectResponse(f"/books/{book_id}/details", status_code=303)
 
 
 @app.post("/books/{book_id}/build")
-def build_book(book_id: str):
+def build_book(request: Request, book_id: str, use_override: bool = Form(False)):
     _book_or_404(book_id)
-    start_build(book_id)
-    return RedirectResponse(f"/books/{book_id}", status_code=303)
+    job = start_build(book_id, use_override=use_override)
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "job_id": job["id"], "status": job["status"]})
+    return RedirectResponse(f"/books/{book_id}?building={job['id']}", status_code=303)
 
 
 @app.get("/books/{book_id}/jobs/{job_id}")
@@ -253,6 +325,24 @@ def download_edition(book_id: str, name: str):
     if not path.is_file():
         raise HTTPException(404, "Edition not found")
     return FileResponse(path, filename=name)
+
+
+@app.get("/books/{book_id}/cover")
+def book_cover(book_id: str):
+    _book_or_404(book_id)
+    path = find_cover(book_root(book_id))
+    if path is None:
+        raise HTTPException(404, "Cover not found")
+    return FileResponse(path)
+
+
+@app.get("/books/{book_id}/assets/{name}")
+def serve_asset(book_id: str, name: str):
+    _book_or_404(book_id)
+    path = resolve_inside(book_root(book_id), f"manuscript/resources/{Path(name).name}")
+    if not path.is_file():
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(path)
 
 
 def main() -> None:

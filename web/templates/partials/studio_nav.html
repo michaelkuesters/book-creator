@@ -1,0 +1,79 @@
+{% macro studio_nav(book, nav, editions=[], building='') %}
+<div class="header-tools">
+  <nav class="studio-nav" aria-label="Book">
+    <a class="nav-link {% if nav == 'write' %}active{% endif %}" href="/books/{{ book.id }}">Write</a>
+    <a class="nav-link {% if nav == 'assets' %}active{% endif %}" href="/books/{{ book.id }}/assets">Assets</a>
+    <a class="nav-link {% if nav == 'details' %}active{% endif %}" href="/books/{{ book.id }}/details">Details</a>
+  </nav>
+  <div class="topbar-actions">
+    <span id="save-status" class="save-status" aria-live="polite"></span>
+
+    <details class="nav-menu">
+      <summary class="button ghost">Download</summary>
+      <div class="menu-panel">
+        <a href="/books/{{ book.id }}/export.zip">Source package</a>
+        <a href="/books/{{ book.id }}/export.zip?dist=true">Package with editions</a>
+        {% for edition in editions %}
+        {% set ext = edition.name.rsplit('.', 1)[-1].lower() %}
+        {% if ext in ['pdf', 'epub'] %}
+        <a href="/books/{{ book.id }}/editions/{{ edition.name }}">{{ ext|upper }} edition</a>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </details>
+
+    <button type="button" class="button" data-open-dialog="publish-dialog">Publish</button>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro publish_dialog(book, has_override=false, editions=[], jobs=[], building='') %}
+<dialog id="publish-dialog" class="sheet publish-sheet" {% if building %}data-autopen="1"{% endif %}>
+  <form id="build-form" method="post" action="/books/{{ book.id }}/build">
+    <h2>Publish</h2>
+    <p class="muted">Create PDF and EPUB from the current manuscript.</p>
+    <div class="row">
+      <button type="submit">Create PDF &amp; EPUB</button>
+      <button type="button" class="button ghost" data-close-dialog>Close</button>
+    </div>
+    {% if has_override %}
+    <label class="checkbox">
+      <input type="checkbox" name="use_override" value="true">
+      Use package build script
+    </label>
+    {% endif %}
+    <p id="build-status" class="build-status muted" data-building="{{ building or '' }}" data-book="{{ book.id }}"></p>
+
+    <h3>Editions</h3>
+    {% if editions %}
+    <ul class="edition-list">
+      {% for edition in editions %}
+      {% set ext = edition.name.rsplit('.', 1)[-1].lower() %}
+      {% if ext in ['pdf', 'epub'] %}
+      <li>
+        <a class="edition-link" href="/books/{{ book.id }}/editions/{{ edition.name }}">
+          <span class="edition-kind">{{ ext|upper }}</span>
+          <span>Download {{ ext|upper }}</span>
+        </a>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No editions yet.</p>
+    {% endif %}
+
+    <details class="job-history">
+      <summary>Build history</summary>
+      {% for job in jobs[:5] %}
+      <div class="job job-{{ job.status }}">
+        <p class="muted">{{ job.status|capitalize }} · {{ job.when }}{% if job.used_override %} · custom script{% endif %}</p>
+        {% if job.error %}<div class="log">{{ job.error }}</div>{% endif %}
+      </div>
+      {% else %}
+      <p class="muted">No builds yet.</p>
+      {% endfor %}
+    </details>
+  </form>
+</dialog>
+{% endmacro %}
