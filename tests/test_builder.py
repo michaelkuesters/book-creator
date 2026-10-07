@@ -73,3 +73,49 @@ def test_default_build_rejects_empty_manifest(tmp_path):
     (tmp_path / "manuscript" / "Book.txt").write_text("\n", encoding="utf-8")
     with pytest.raises(BuildError):
         build_editions(tmp_path)
+
+
+def test_default_build_tolerates_html_br_raw_inline(tiny_package):
+    if not _pandoc_available():
+        pytest.skip("pandoc is required for the default builder")
+    chapter = tiny_package / "manuscript" / "01-hello.md"
+    chapter.write_text(
+        chapter.read_text(encoding="utf-8").rstrip()
+        + "\n\n<br>\n\nMore after the break.\n",
+        encoding="utf-8",
+    )
+    report = build_editions(tiny_package)
+    dist = tiny_package / "dist"
+    assert (dist / "Tiny_Test_Book.pdf").is_file()
+    assert (dist / "Tiny_Test_Book.epub").is_file()
+    assert report["pdf_pages"] >= 2
+
+
+def test_bundled_serif_italic_faces_exist():
+    from book_creator.builder.engine import BUNDLED_FONTS
+
+    assert (BUNDLED_FONTS / "DejaVuSerif-Italic.ttf").is_file()
+    assert (BUNDLED_FONTS / "DejaVuSerif-BoldItalic.ttf").is_file()
+
+
+def test_default_build_embeds_italic_font(tiny_package):
+    if not _pandoc_available():
+        pytest.skip("pandoc is required for the default builder")
+    from pypdf import PdfReader
+
+    chapter = tiny_package / "manuscript" / "01-hello.md"
+    chapter.write_text(
+        "# Hello\n\nThis has *italic emphasis* in the body.\n",
+        encoding="utf-8",
+    )
+    build_editions(tiny_package)
+    reader = PdfReader(str(tiny_package / "dist" / "Tiny_Test_Book.pdf"))
+    base_fonts = set()
+    for page in reader.pages:
+        resources = page.get("/Resources") or {}
+        fonts = resources.get("/Font") or {}
+        for font in fonts.values():
+            base = font.get("/BaseFont")
+            if base is not None:
+                base_fonts.add(str(base))
+    assert any("DejaVuSerif-Italic" in name for name in base_fonts), base_fonts

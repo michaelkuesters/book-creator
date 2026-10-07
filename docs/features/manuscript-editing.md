@@ -167,6 +167,14 @@ Scenario: Numbered chapter titles stay unescaped
   When the editor saves Markdown that would escape the period as "2\."
   Then the on-disk heading and the Write title show "2. Prepare the Runway"
   And the escape does not reappear after reload
+
+Scenario: Editor HTML artifacts are not persisted
+  Given the WYSIWYG editor would serialize a hard break or empty paragraph as raw HTML
+    (for example a lone <br>, <br/>, or <br />)
+  When the chapter is saved through the autosave endpoint
+  Then the on-disk Markdown has no raw HTML break tags
+  And those breaks are represented as normal Markdown blank lines (paragraph spacing)
+  And a reload shows the same structure without reintroducing the HTML tags
 ```
 
 ## Feature description
@@ -188,6 +196,7 @@ Scenario: Numbered chapter titles stay unescaped
 - Write’s chapter toolbar keeps **Insert illustration** as a primary control. **Tags**, **History**, and **Download chapter** live in a More overflow menu (reuse the studio `<details class="nav-menu">` pattern).
 - Download chapter serves the current on-disk Latest Markdown for that chapter. If the editor is dirty, flush via the autosave endpoint first. The attachment filename is `{title-with-dots-as-dashes}-{YYYY-MM-DD-HHMM}.md` using local clock time (e.g. `2. Prepare the Runway` → `2- Prepare the Runway-2026-10-07-2151.md`).
 - Chapter heading titles must not retain spurious Markdown backslash escapes (e.g. `2\.` from WYSIWYG serializers). Saving a manuscript chapter normalizes the first ATX heading; title display and Contents use the unescaped text.
+- Saving a manuscript chapter also strips WYSIWYG HTML break artifacts (`<br>`, `<br/>`, `<br />`, case-insensitive) and replaces them with Markdown paragraph spacing (blank lines). This runs on the same save path as heading normalization (autosave, leave-save, and forced Ctrl/Cmd+S). The on-disk chapter remains Markdown-only for those breaks—operators must not have to hand-edit out editor-injected HTML.
 - History offers Squash only when at least one scope would remove a version. Squash opens a `<dialog>` post-selection with only the scopes that apply: Same days (collapse multiple versions on the same UTC calendar day), Same week (same UTC ISO week), All (collapse the entire list to the single newest version). Within each group, the newest version is kept and older ones in that group are deleted. Squashing must not rewrite or retimestamp the kept record—its original revision id and `saved_at` stay intact.
 - Unsaved highlighting is a diff against the chapter text at last load or last successful save, built by matching equal substrings of maximum length (longest contiguous matches first), not by splitting on individual characters. Identical gaps (including spaces between words) stay equal—never delete+insert of the same text. Opening a chapter shows no highlights until the operator edits. Additions are highlighted in place; removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop). When that diff reaches about fifty segments, the studio consolidates by saving through the autosave endpoint so the baseline resets and highlighting clears.
 - Paths stay inside the book package; `..` is rejected.
@@ -206,6 +215,7 @@ Scenario: Numbered chapter titles stay unescaped
 - Must not bury book-level Download or Publish only inside the chapter layout; they belong in the book navbar (chapter Markdown download is a separate Write More-menu action).
 - Must not leave Tags, History, and Download chapter as three peer toolbar buttons that crowd Insert illustration; they belong in More.
 - Must not persist CommonMark heading escapes such as `2\.` in on-disk chapter titles or the Write title field.
+- Must not persist raw HTML break tags (`<br>` / `<br/>` / `<br />`) in on-disk chapter Markdown when the WYSIWYG serializer emits them.
 - Must not block navigation with a browser leave-confirm dialog when the chapter has unsaved edits.
 - Must not use `window.prompt`, `window.confirm`, or `window.alert` for the older-version edit warning or squash scope picker; use HTML `<dialog>`.
 - Must not present Squash (or a squash scope) when that action would not remove any version.
@@ -232,4 +242,5 @@ Scenario: Numbered chapter titles stay unescaped
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
 7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown; Write keeps Insert illustration primary while Tags, History, and Download chapter live in More.
 8. Download chapter returns that chapter’s Latest Markdown with filename `{title-dots-to-dashes}-{YYYY-MM-DD-HHMM}.md`; dirty editor content is saved first; numbered headings do not persist `\.` escapes after save or in titles.
-9. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, Ctrl/Cmd+S force-save wiring in studio.js, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, asset upload/serve, heading unescape, and chapter download).
+9. Saving chapter Markdown that contains WYSIWYG `<br>` / `<br/>` / `<br />` artifacts writes Markdown without those tags (blank-line spacing instead); reload does not reintroduce them from the saved file alone.
+10. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, Ctrl/Cmd+S force-save wiring in studio.js, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, asset upload/serve, heading unescape, HTML break sanitization on save, and chapter download).

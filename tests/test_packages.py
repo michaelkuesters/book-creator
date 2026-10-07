@@ -94,6 +94,25 @@ def test_numbered_heading_escapes_normalized(data_dir):
     assert "2\\." not in saved
 
 
+def test_html_break_artifacts_sanitized_on_save(data_dir):
+    book = create_book("Break Book")
+    root = data_dir / "books" / book["id"]
+    path = "manuscript/Break Book.md"
+    body = (
+        "# Break Book\n\n"
+        "Enough body text to keep this chapter substantial for the wipe guard.\n\n"
+        "<br>\n"
+        "## Next section\n\n"
+        "Inline<br/>break and another <BR /> too.\n"
+    )
+    write_text_file(root, path, body)
+    saved = read_text_file(root, path)
+    assert "<br" not in saved.lower()
+    assert "## Next section" in saved
+    assert "Inline" in saved and "break" in saved
+    assert "\n\n## Next section\n" in saved
+
+
 def test_chapter_download_filename_dots_and_stamp():
     when = datetime(2026, 10, 7, 21, 51)
     assert (

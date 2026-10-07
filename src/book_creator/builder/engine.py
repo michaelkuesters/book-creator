@@ -303,6 +303,11 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
                 out.append("&quot;" + inline(value[1]) + "&quot;")
             elif kind == "Span":
                 out.append(inline(value[1]))
+            elif kind == "RawInline":
+                fmt, raw = value[0], value[1]
+                if fmt == "html" and re.match(r"^<br\s*/?>$", str(raw).strip(), re.IGNORECASE):
+                    out.append("<br/>")
+                # Other raw HTML (or non-HTML raw) is omitted so residual markup does not fail the build.
             elif kind == "Note":
                 raise BuildError("Footnote rendering not configured")
             else:
@@ -423,13 +428,19 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
                 counter += 1
                 result.append(para)
             elif kind in {"Para", "Plain"}:
-                para = Paragraph(inline(value), styles["body"])
+                text = inline(value)
+                if not text.strip():
+                    continue
+                para = Paragraph(text, styles["body"])
                 if block_index + 1 < len(blocks) and blocks[block_index + 1]["t"] == "Table":
                     head = blocks[block_index + 1]["c"][3][1]
                     labels = [re.sub("<[^>]+>", "", cell_text(c[4])) for c in head[0][1]] if head else []
                     if labels in [["Step", "Responsibility", "Result"], ["File", "Responsibility"]]:
                         para.keepWithNext = True
                 result.append(para)
+            elif kind == "RawBlock":
+                # Residual raw HTML blocks are omitted (same policy as RawInline).
+                continue
             elif kind == "CodeBlock":
                 wrapped = []
                 max_chars = int((content_width - 16) / pdfmetrics.stringWidth("M", "BookMono", 7.6))

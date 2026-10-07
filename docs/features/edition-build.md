@@ -32,6 +32,15 @@ Scenario: Failed build
   When a build runs
   Then the job is failed
   And the error is available on the job record
+
+Scenario: Residual raw HTML does not fail the default build
+  Given a valid package whose Markdown still contains a Pandoc RawInline or RawBlock
+    (for example a leftover HTML <br> from an older editor save or an imported chapter)
+  And the operator builds with the default studio engine (not the package script)
+  When PDF rendering walks the Pandoc AST
+  Then the job succeeds
+  And known break tags become line breaks in the PDF
+  And other raw HTML inlines/blocks are omitted rather than aborting the build
 ```
 
 ## Feature description
@@ -39,6 +48,7 @@ Scenario: Failed build
 ### Musts
 
 - Default engine: combine chapters, Pandoc JSON, ReportLab PDF, Pandoc EPUB3, DejaVu fonts bundled in the app.
+- Default PDF walker tolerates Pandoc `RawInline` / `RawBlock`: HTML break tags (`br`) map to a line break; other raw HTML is skipped (content omitted) so residual or imported HTML does not fail the job.
 - Output directory is the package `dist/` on the data volume, not a git `dist/`.
 - Override runs only when `scripts/build_book.py` exists **and** the operator sets `use_override`.
 - Builds are SQLite jobs (`queued` / `running` / `succeeded` / `failed`) with log and error.
@@ -49,6 +59,8 @@ Scenario: Failed build
 - Must not treat a package script as the default.
 - Must not claim printer-certified PDF.
 - Must not call Leanpub’s network.
+- Must not fail a default-engine build solely because Pandoc emitted `RawInline` or `RawBlock` for HTML.
+- Must not rewrite the operator’s package `scripts/build_book.py`; override behaviour stays package-owned.
 
 ### Escalation
 
@@ -61,4 +73,5 @@ Scenario: Failed build
 2. Override job with a stub `scripts/build_book.py` sets `used_override` and writes the script’s `dist/` output.
 3. Invalid empty `Book.txt` raises a builder error.
 4. Publish UI lists PDF and EPUB download links after a successful default build.
-5. Covered by `tests/test_builder.py`.
+5. Default build of a chapter that still contains an HTML `<br>` (Pandoc `RawInline`) succeeds; the job does not raise `Unsupported inline: RawInline`.
+6. Covered by `tests/test_builder.py`.

@@ -31,6 +31,8 @@ _WORD_RE = re.compile(r"\b[\w'-]+\b")
 # CommonMark backslash-escapes of ASCII punctuation (e.g. Toast UI's "2\." in headings).
 _MD_ESCAPE_RE = re.compile(r'\\([!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~])')
 _ATX_HEADING_RE = re.compile(r"^(#{1,6})([ \t]+)(.*)$")
+# Toast UI WYSIWYG often serializes hard breaks / empty paras as raw HTML breaks.
+_HTML_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 
 class PackageError(ValueError):
@@ -60,6 +62,16 @@ def _normalize_chapter_heading(content: str) -> str:
     if ended:
         out += "\n"
     return out
+
+
+def _sanitize_html_breaks(content: str) -> str:
+    """Replace WYSIWYG HTML break tags with Markdown paragraph spacing."""
+    body = content.replace("\r\n", "\n")
+    if not _HTML_BR_RE.search(body):
+        return body
+    body = _HTML_BR_RE.sub("\n\n", body)
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    return body
 
 
 def book_root(book_id: str) -> Path:
@@ -748,7 +760,7 @@ def write_text_file(root: Path, relative: str, content: str, add_to_book: bool =
     normalized = content.replace("\r\n", "\n")
     rel_probe = relative.replace("\\", "/").lstrip("/")
     if _is_manuscript_chapter(rel_probe):
-        normalized = _normalize_chapter_heading(normalized)
+        normalized = _sanitize_html_breaks(_normalize_chapter_heading(normalized))
     created = not path.exists()
     if not created and path.is_file():
         existing = path.read_text(encoding="utf-8")
