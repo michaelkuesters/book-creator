@@ -1,0 +1,14 @@
+---
+description: Force ACD process — development guidelines and feature registry
+alwaysApply: true
+---
+
+# ACD process
+
+Before coding in this repo:
+
+1. Follow [docs/DEVELOPMENT-GUIDELINES.md](docs/DEVELOPMENT-GUIDELINES.md).
+2. Pick the feature from [docs/feature-registry.md](docs/feature-registry.md); load only that feature doc.
+3. Docs outrank code. Run `make test`. One feature outcome per change.
+
+See also root `AGENTS.md` / `CLAUDE.md`.
