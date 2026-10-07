@@ -58,6 +58,15 @@ Scenario: Editing an older version
   Then they are warned that continuing would make that content the Latest
   And they can Proceed (edit and save as Latest) or Open Read-Only (editing disabled)
 
+Scenario: Squash older versions
+  Given History lists prior minor versions for a chapter
+  And at least two versions share a calendar day, ISO week, or the list has two or more overall
+  When the operator chooses Squash
+  Then only applicable scopes are offered: Same days, Same week, and/or All
+  And choosing a scope keeps the newest version in each group and deletes the rest
+  And each kept version retains its original timestamp
+  And Squash is not shown when nothing can be collapsed
+
 Scenario: Unsaved edits highlight
   Given an open chapter with no edits since it was loaded or last saved
   Then the editor shows no unsaved-change highlighting
@@ -125,6 +134,7 @@ Scenario: Insert illustration into a chapter
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
 - Saving must not replace a substantial on-disk chapter with blank or heading-only text (guards against undo-to-empty then autosave).
 - Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
+- History offers Squash only when at least one scope would remove a version. Squash opens a `<dialog>` post-selection with only the scopes that apply: Same days (collapse multiple versions on the same UTC calendar day), Same week (same UTC ISO week), All (collapse the entire list to the single newest version). Within each group, the newest version is kept and older ones in that group are deleted. Squashing must not rewrite or retimestamp the kept record—its original revision id and `saved_at` stay intact.
 - Unsaved highlighting is a character diff against the chapter text at last load or last successful save. Opening a chapter shows no highlights until the operator edits. Additions are highlighted in place; removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop).
 - Paths stay inside the book package; `..` is rejected.
 - `metadata.yaml` and `manuscript/Book.txt` cannot be deleted.
@@ -138,7 +148,9 @@ Scenario: Insert illustration into a chapter
 - Must not require a client-side SPA build; server-rendered pages plus small scripts (and CDN editor assets) are enough.
 - Must not bury Download or Publish only inside the chapter layout; they belong in the book navbar.
 - Must not block navigation with a browser leave-confirm dialog when the chapter has unsaved edits.
-- Must not use `window.prompt`, `window.confirm`, or `window.alert` for the older-version edit warning; use HTML `<dialog>`.
+- Must not use `window.prompt`, `window.confirm`, or `window.alert` for the older-version edit warning or squash scope picker; use HTML `<dialog>`.
+- Must not present Squash (or a squash scope) when that action would not remove any version.
+- Must not change the timestamp or revision id of a version kept by squash.
 
 ### Preferences
 
@@ -154,10 +166,10 @@ Scenario: Insert illustration into a chapter
 ## Acceptance criteria
 
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
-2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save now control; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency.
+2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save now control; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; History offers Squash only when something can be collapsed, with a `<dialog>` scope picker (Same days / Same week / All, only when applicable) that keeps the newest version per group without retimestamping it; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency.
 3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown; pasted or inserted Markdown is parsed into that view.
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
 7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown.
-8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint, historic-view UI without overwrite, chapter rename/reorder/remove, and asset upload/serve).
+8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, and asset upload/serve).

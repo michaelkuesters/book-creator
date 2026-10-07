@@ -147,6 +147,9 @@ def test_chapter_history_list_and_restore(data_dir):
     assert len(revisions) == 2
     assert "saved_at" in revisions[0]
     assert "word_count" in revisions[0]
+    squash = listed.json()["squash"]
+    assert squash["all"] is True
+    assert squash["same_days"] is True
     target = next(
         rev
         for rev in revisions
@@ -169,15 +172,34 @@ def test_chapter_history_list_and_restore(data_dir):
     page = client.get(f"/books/{book['id']}?file={path}")
     assert page.status_code == 200
     assert b"chapter-history-btn" in page.content
+    assert b"chapter-history-squash-btn" in page.content
+    assert b"chapter-squash-dialog" in page.content
+    assert b"Same days" in page.content
+    assert b"Same week" in page.content
     assert b"version-promote-dialog" in page.content
     assert b"version-proceed" in page.content
     assert b"version-open-readonly" in page.content
     assert b"Back to Latest" in page.content
+    kept_id = revisions[0]["id"]
+    kept_at = revisions[0]["saved_at"]
+    squashed = client.post(
+        f"/books/{book['id']}/files/history/squash",
+        data={"path": path, "mode": "all"},
+        headers={"Accept": "application/json"},
+    )
+    assert squashed.status_code == 200
+    body = squashed.json()
+    assert body["removed"] == 1
+    assert len(body["revisions"]) == 1
+    assert body["revisions"][0]["id"] == kept_id
+    assert body["revisions"][0]["saved_at"] == kept_at
+    assert body["squash"] == {"same_days": False, "same_week": False, "all": False}
     studio_js = client.get("/static/studio.js")
     assert b"insertMarkdownParsed" in studio_js.content
     assert b"hideModeSwitch: false" in studio_js.content
     assert b"sessionNeedsCheckpoint" in studio_js.content
     assert b"files/history/checkpoint" in studio_js.content
+    assert b"files/history/squash" in studio_js.content
     assert b"openHistoricVersion" in studio_js.content
     assert b"offerVersionPromote" in studio_js.content
     assert b"Open Read-Only" in page.content

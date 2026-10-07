@@ -128,3 +128,67 @@ def test_leave_checkpoint_keeps_timestamped_versions(data_dir):
     payload = zip_package(root)
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         assert not any(name.startswith(".history/") for name in archive.namelist())
+
+
+def test_squash_chapter_history_keeps_newest_timestamp(data_dir):
+    from book_creator.packages import (
+        HISTORY_DIR,
+        PackageError,
+        chapter_history_squash_options,
+        list_chapter_history,
+        squash_chapter_history,
+    )
+
+    book = create_book("Squash Book")
+    root = data_dir / "books" / book["id"]
+    path = "manuscript/Squash Book.md"
+    write_text_file(root, path, "# Squash\n\nBody text for the chapter.\n")
+    hist = root / HISTORY_DIR / path
+    hist.mkdir(parents=True, exist_ok=True)
+    # Two on Monday, one later same week, one next week — fixed stamps so squash is deterministic.
+    snapshots = [
+        ("20260302T100000Z.md", "# Squash\n\nMorning Monday draft.\n"),
+        ("20260302T180000Z.md", "# Squash\n\nEvening Monday draft.\n"),
+        ("20260304T120000Z.md", "# Squash\n\nWednesday draft same week.\n"),
+        ("20260310T090000Z.md", "# Squash\n\nNext week draft.\n"),
+    ]
+    for name, body in snapshots:
+        (hist / name).write_text(body, encoding="utf-8")
+
+    opts = chapter_history_squash_options(root, path)
+    assert opts == {"same_days": True, "same_week": True, "all": True}
+
+    day = squash_chapter_history(root, path, "same_days")
+    assert day["removed"] == 1
+    after_day = {item["id"]: item["saved_at"] for item in list_chapter_history(root, path)}
+    assert "20260302T180000Z.md" in after_day
+    assert "20260302T100000Z.md" not in after_day
+    assert after_day["20260302T180000Z.md"] == "2026-03-02T18:00:00Z"
+    assert set(after_day) == {
+        "20260302T180000Z.md",
+        "20260304T120000Z.md",
+        "20260310T090000Z.md",
+    }
+    assert not chapter_history_squash_options(root, path)["same_days"]
+    assert chapter_history_squash_options(root, path)["same_week"]
+
+    week = squash_chapter_history(root, path, "same_week")
+    assert week["removed"] == 1
+    after_week = {item["id"] for item in list_chapter_history(root, path)}
+    assert after_week == {"20260304T120000Z.md", "20260310T090000Z.md"}
+    kept = next(item for item in list_chapter_history(root, path) if item["id"] == "20260304T120000Z.md")
+    assert kept["saved_at"] == "2026-03-04T12:00:00Z"
+
+    everything = squash_chapter_history(root, path, "all")
+    assert everything["removed"] == 1
+    remaining = list_chapter_history(root, path)
+    assert len(remaining) == 1
+    assert remaining[0]["id"] == "20260310T090000Z.md"
+    assert remaining[0]["saved_at"] == "2026-03-10T09:00:00Z"
+    assert chapter_history_squash_options(root, path) == {
+        "same_days": False,
+        "same_week": False,
+        "all": False,
+    }
+    with pytest.raises(PackageError, match="Nothing to squash"):
+        squash_chapter_history(root, path, "all")

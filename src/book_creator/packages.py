@@ -20,6 +20,7 @@ PROTECTED = {"manuscript/Book.txt", "metadata.yaml"}
 EDITABLE_SUFFIXES = config.EDITABLE_SUFFIXES
 MAX_ZIP_BYTES = 200 * 1024 * 1024
 HISTORY_DIR = ".history"
+SQUASH_MODES = frozenset({"same_days", "same_week", "all"})
 # Refuse saving blank / heading-only text over a chapter that already has real content
 # (guards undo-to-blank + autosave from wiping the manuscript).
 _WIPE_MIN_EXISTING = 80
@@ -393,6 +394,84 @@ def list_chapter_history(root: Path, relative: str) -> list[dict]:
         return []
     paths = sorted(hist_dir.glob("*.md"), key=lambda p: _revision_sort_key(p.name), reverse=True)
     return [_revision_meta(path) for path in paths]
+
+
+def _revision_datetime(stem: str) -> datetime | None:
+    base = stem
+    if "-" in stem:
+        head, tail = stem.rsplit("-", 1)
+        if tail.isdigit():
+            base = head
+    if len(base) != 16 or base[8] != "T" or not base.endswith("Z"):
+        return None
+    try:
+        return datetime.strptime(base, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _history_revision_paths(root: Path, relative: str) -> list[Path]:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have history")
+    hist_dir = root / HISTORY_DIR / rel
+    if not hist_dir.is_dir():
+        return []
+    return sorted(hist_dir.glob("*.md"), key=lambda p: _revision_sort_key(p.name), reverse=True)
+
+
+def _squash_group_key(path: Path, mode: str) -> str:
+    if mode == "all":
+        return "all"
+    dt = _revision_datetime(path.stem)
+    if dt is None:
+        return f"unknown:{path.name}"
+    if mode == "same_days":
+        return dt.strftime("%Y-%m-%d")
+    if mode == "same_week":
+        iso = dt.isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+    raise PackageError("Invalid squash mode")
+
+
+def chapter_history_squash_options(root: Path, relative: str) -> dict[str, bool]:
+    paths = _history_revision_paths(root, relative)
+    options = {"same_days": False, "same_week": False, "all": len(paths) >= 2}
+    if len(paths) < 2:
+        return options
+    for mode in ("same_days", "same_week"):
+        groups: dict[str, int] = {}
+        for path in paths:
+            key = _squash_group_key(path, mode)
+            groups[key] = groups.get(key, 0) + 1
+        options[mode] = any(count >= 2 for count in groups.values())
+    return options
+
+
+def squash_chapter_history(root: Path, relative: str, mode: str) -> dict:
+    """Collapse history by scope; keep newest in each group with its original timestamp."""
+    if mode not in SQUASH_MODES:
+        raise PackageError("Invalid squash mode")
+    paths = _history_revision_paths(root, relative)
+    options = chapter_history_squash_options(root, relative)
+    if not options.get(mode):
+        raise PackageError("Nothing to squash for that scope")
+    groups: dict[str, list[Path]] = {}
+    for path in paths:
+        groups.setdefault(_squash_group_key(path, mode), []).append(path)
+    removed = 0
+    for group in groups.values():
+        # Newest first (paths already newest-first overall; group preserves that order).
+        for doomed in group[1:]:
+            doomed.unlink(missing_ok=True)
+            removed += 1
+    remaining = list_chapter_history(root, relative)
+    return {
+        "mode": mode,
+        "removed": removed,
+        "revisions": remaining,
+        "squash": chapter_history_squash_options(root, relative),
+    }
 
 
 def read_chapter_history(root: Path, relative: str, revision_id: str) -> str:

@@ -845,11 +845,18 @@
     var dialog = document.getElementById("chapter-history-dialog");
     var list = document.getElementById("chapter-history-list");
     var empty = document.getElementById("chapter-history-empty");
+    var squashBtn = document.getElementById("chapter-history-squash-btn");
+    var squashDialog = document.getElementById("chapter-squash-dialog");
     var form = document.getElementById("editor-form");
     var promoteDialog = document.getElementById("version-promote-dialog");
     var proceedBtn = document.getElementById("version-proceed");
     var readonlyBtn = document.getElementById("version-open-readonly");
     var backBtn = document.getElementById("version-back-latest");
+    var squashOptions = {
+      same_days: false,
+      same_week: false,
+      all: false,
+    };
     if (!openBtn || !dialog || !list || !form) return;
 
     function chapterPath() {
@@ -857,9 +864,27 @@
       return input ? input.value : "";
     }
 
+    function applySquashOptions(opts) {
+      squashOptions = {
+        same_days: !!(opts && opts.same_days),
+        same_week: !!(opts && opts.same_week),
+        all: !!(opts && opts.all),
+      };
+      var any =
+        squashOptions.same_days || squashOptions.same_week || squashOptions.all;
+      if (squashBtn) squashBtn.hidden = !any;
+      var dayBtn = document.getElementById("squash-same-days");
+      var weekBtn = document.getElementById("squash-same-week");
+      var allBtn = document.getElementById("squash-all");
+      if (dayBtn) dayBtn.hidden = !squashOptions.same_days;
+      if (weekBtn) weekBtn.hidden = !squashOptions.same_week;
+      if (allBtn) allBtn.hidden = !squashOptions.all;
+    }
+
     async function loadHistory() {
       list.innerHTML = "";
       empty.hidden = true;
+      applySquashOptions(null);
       var path = chapterPath();
       if (!path) return;
       var response = await fetch(
@@ -869,6 +894,7 @@
       if (!response.ok) throw new Error("history failed");
       var data = await response.json();
       var revisions = data.revisions || [];
+      applySquashOptions(data.squash || {});
       if (!revisions.length) {
         empty.hidden = false;
         return;
@@ -927,6 +953,47 @@
         setSaveStatus("Could not load history", "error");
       }
     });
+
+    if (squashBtn && squashDialog) {
+      squashBtn.addEventListener("click", function () {
+        if (
+          !squashOptions.same_days &&
+          !squashOptions.same_week &&
+          !squashOptions.all
+        ) {
+          return;
+        }
+        if (typeof squashDialog.showModal === "function") squashDialog.showModal();
+      });
+      squashDialog.querySelectorAll("[data-squash-mode]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var mode = btn.getAttribute("data-squash-mode");
+          if (!mode || !squashOptions[mode]) return;
+          btn.disabled = true;
+          try {
+            var body = new FormData();
+            body.append("path", chapterPath());
+            body.append("mode", mode);
+            var response = await fetch(
+              "/books/" + bookId() + "/files/history/squash",
+              {
+                method: "POST",
+                body: body,
+                headers: { Accept: "application/json" },
+              }
+            );
+            if (!response.ok) throw new Error("squash failed");
+            squashDialog.close();
+            await loadHistory();
+            setSaveStatus("Versions squashed", "saved");
+          } catch (err) {
+            setSaveStatus("Could not squash versions", "error");
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+    }
 
     if (proceedBtn) {
       proceedBtn.addEventListener("click", function () {

@@ -113,7 +113,23 @@
     <ul class="history-list" id="chapter-history-list"></ul>
     <p class="muted" id="chapter-history-empty" hidden>No prior versions yet.</p>
     <div class="row dialog-actions">
+      <button type="button" class="button ghost" id="chapter-history-squash-btn" hidden>Squash</button>
       <button type="button" class="button ghost" data-close-dialog>Close</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="chapter-squash-dialog" class="sheet">
+  <div class="sheet-body">
+    <h2>Squash versions</h2>
+    <p class="muted">Keep the newest version in each group. Kept versions keep their original timestamps.</p>
+    <div class="row dialog-actions squash-scope-actions">
+      <button type="button" class="button ghost" id="squash-same-days" data-squash-mode="same_days" hidden>Same days</button>
+      <button type="button" class="button ghost" id="squash-same-week" data-squash-mode="same_week" hidden>Same week</button>
+      <button type="button" class="button ghost" id="squash-all" data-squash-mode="all" hidden>All</button>
+    </div>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
     </div>
   </div>
 </dialog>

@@ -24,6 +24,7 @@ from book_creator.packages import (
     import_book,
     list_assets,
     checkpoint_chapter_history,
+    chapter_history_squash_options,
     list_chapter_history,
     list_chapters,
     list_editions,
@@ -37,6 +38,7 @@ from book_creator.packages import (
     restore_chapter_history,
     chapter_filename,
     rename_chapter,
+    squash_chapter_history,
     touch_book,
     write_binary_file,
     write_book_txt,
@@ -281,10 +283,12 @@ def remove_file(request: Request, book_id: str, path: str = Form(...)):
 def chapter_history(book_id: str, path: str):
     _book_or_404(book_id)
     try:
-        items = list_chapter_history(book_root(book_id), path)
+        root = book_root(book_id)
+        items = list_chapter_history(root, path)
+        squash = chapter_history_squash_options(root, path)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return JSONResponse({"ok": True, "path": path, "revisions": items})
+    return JSONResponse({"ok": True, "path": path, "revisions": items, "squash": squash})
 
 
 @app.post("/books/{book_id}/files/history/checkpoint")
@@ -297,6 +301,24 @@ def chapter_history_checkpoint(request: Request, book_id: str, path: str = Form(
         raise HTTPException(400, str(exc)) from exc
     if _wants_json(request):
         return JSONResponse({"ok": True, "path": path, "revision": revision})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+
+
+@app.post("/books/{book_id}/files/history/squash")
+def chapter_history_squash(
+    request: Request,
+    book_id: str,
+    path: str = Form(...),
+    mode: str = Form(...),
+):
+    _book_or_404(book_id)
+    try:
+        result = squash_chapter_history(book_root(book_id), path, mode)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, **result})
     return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
 
 
