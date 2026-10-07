@@ -427,6 +427,77 @@
     }
   }
 
+  /**
+   * Convert completed inline Markdown markers to WW marks as the operator types.
+   * Toast UI does not do this by default in WYSIWYG mode. We watch the doc after
+   * each change and replace a just-completed marker pair before the caret.
+   */
+  function markdownInlineInputPlugin(context) {
+    var Plugin = context.pmState.Plugin;
+    var PluginKey = context.pmState.PluginKey;
+    var key = new PluginKey("bcMarkdownInlineInput");
+    var META = "bcMdInline";
+    // Order: longer openers first so ** wins over *, ~~ is unambiguous.
+    var rules = [
+      { re: /\*\*([^*\n]+)\*\*$/, mark: "strong" },
+      { re: /__([^_\n]+)__$/, mark: "strong" },
+      { re: /~~([^~\n]+)~~$/, mark: "strike" },
+      { re: /`([^`\n]+)`$/, mark: "code" },
+      { re: /(?<![*_])\*([^*\n]+)\*$/, mark: "emph" },
+      { re: /(?<![*_])_([^_\n]+)_$/, mark: "emph" },
+    ];
+
+    function conversionTr(state) {
+      if (versionView && versionView.mode === "readonly") return null;
+      var sel = state.selection;
+      if (!sel.empty) return null;
+      var $pos = sel.$from;
+      if (!$pos.parent.isTextblock) return null;
+      var before = $pos.parent.textBetween(0, $pos.parentOffset, null, "\ufffc");
+      if (!before) return null;
+
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i];
+        var m = before.match(rule.re);
+        if (!m) continue;
+        var markType = state.schema.marks[rule.mark];
+        if (!markType) continue;
+        var inner = m[1];
+        if (!inner) continue;
+        var matchLen = m[0].length;
+        var from = $pos.pos - matchLen;
+        if (from < $pos.start()) continue;
+        var tr = state.tr;
+        tr.delete(from, $pos.pos);
+        tr.insertText(inner, from);
+        tr.addMark(from, from + inner.length, markType.create());
+        // Stop the mark from sticking to the next characters the operator types.
+        tr.removeStoredMark(markType);
+        tr.setMeta(META, true);
+        tr.setMeta("addToHistory", true);
+        return tr;
+      }
+      return null;
+    }
+
+    return {
+      wysiwygPlugins: [
+        function () {
+          return new Plugin({
+            key: key,
+            appendTransaction: function (transactions, _oldState, newState) {
+              if (ignoringBaselineTr) return null;
+              if (!transactions.length) return null;
+              if (transactions.some(function (tr) { return tr.getMeta(META); })) return null;
+              if (!transactions.some(function (tr) { return tr.docChanged; })) return null;
+              return conversionTr(newState);
+            },
+          });
+        },
+      ],
+    };
+  }
+
   function unsavedDiffPlugin(context) {
     var Plugin = context.pmState.Plugin;
     var PluginKey = context.pmState.PluginKey;
@@ -741,7 +812,7 @@
       usageStatistics: false,
       theme: theme,
       initialValue: initial,
-      plugins: [unsavedDiffPlugin],
+      plugins: [markdownInlineInputPlugin, unsavedDiffPlugin],
       events: {
         load: function () {
           settleUnsavedBaseline(0, null, 0);

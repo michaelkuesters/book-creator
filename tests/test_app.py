@@ -196,6 +196,9 @@ def test_chapter_history_list_and_restore(data_dir):
     assert body["squash"] == {"same_days": False, "same_week": False, "all": False}
     studio_js = client.get("/static/studio.js")
     assert b"insertMarkdownParsed" in studio_js.content
+    assert b"markdownInlineInputPlugin" in studio_js.content
+    assert b"appendTransaction" in studio_js.content
+    assert b"bcMarkdownInlineInput" in studio_js.content
     assert b"hideModeSwitch: false" in studio_js.content
     assert b"sessionNeedsCheckpoint" in studio_js.content
     assert b"files/history/checkpoint" in studio_js.content
