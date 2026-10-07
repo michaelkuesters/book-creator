@@ -20,6 +20,9 @@ Scenario: Create a book
   When the operator creates a book titled "Demo"
   Then the studio opens that book
   And the library later lists "Demo"
+  And the new package includes the studio’s default DejaVu font family under fonts/
+    (regular, bold, italic, and bold-italic serif faces, plus the bundled sans/mono files and LICENSE)
+  So a default PDF build can render emphasis without the operator adding fonts by hand
 
 Scenario: Open an existing book
   Given a book is in the library
@@ -39,7 +42,8 @@ Scenario: Cover on the shelf
 
 - Library is `/`.
 - Creating a book POSTs to `/books` and redirects into the studio.
-- Importing a zip POSTs to `/books/import`.
+- Creating a book seeds `fonts/` from the studio’s bundled DejaVu set (the same faces the default edition builder uses), including serif italic and bold-italic, so in-studio books are publishable with emphasis without a manual font drop-in.
+- Importing a zip POSTs to `/books/import` and keeps whatever `fonts/` the zip already has (no forced overwrite with studio defaults).
 - Book records live in SQLite; package files live under `DATA_DIR/books/<id>/`.
 - Cover image, when present, is served from `/books/<id>/cover`.
 
@@ -48,6 +52,7 @@ Scenario: Cover on the shelf
 - Must not require an account.
 - Must not list other operators’ data (there is only local data).
 - Must not copy third-party manuscripts into git.
+- Must not replace an imported package’s `fonts/` with the studio defaults.
 
 ### Escalation
 
@@ -57,6 +62,7 @@ Scenario: Cover on the shelf
 
 1. An empty library renders an empty state with create and import actions.
 2. Creating a book adds a SQLite row and an on-disk package, then opens the studio.
-3. Importing a valid package zip adds a library entry titled from `metadata.yaml`.
-4. Removing a book from the studio deletes its row and files and it no longer appears on the library.
-5. Tests cover create and library page rendering (`tests/test_app.py`, `tests/test_packages.py`).
+3. A newly created package’s `fonts/` contains the bundled DejaVu files including `DejaVuSerif-Italic.ttf` and `DejaVuSerif-BoldItalic.ttf`.
+4. Importing a valid package zip adds a library entry titled from `metadata.yaml` without overwriting that zip’s `fonts/`.
+5. Removing a book from the studio deletes its row and files and it no longer appears on the library.
+6. Tests cover create and library page rendering (`tests/test_app.py`, `tests/test_packages.py`), including default font seeding on create.

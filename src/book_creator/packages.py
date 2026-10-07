@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from book_creator import config
-from book_creator.builder.engine import BUNDLED_CSS
+from book_creator.builder.engine import BUNDLED_CSS, BUNDLED_FONTS
 from book_creator.db import session, utcnow
 from book_creator.slug import slugify
 
@@ -305,6 +305,15 @@ def write_book_txt(root: Path, names: list[str]) -> None:
     (manuscript / "Book.txt").write_text("\n".join(names) + ("\n" if names else ""), encoding="utf-8")
 
 
+def _seed_default_fonts(root: Path) -> None:
+    """Copy the studio’s bundled DejaVu family into package fonts/."""
+    dest = root / "fonts"
+    dest.mkdir(parents=True, exist_ok=True)
+    for path in sorted(BUNDLED_FONTS.iterdir()):
+        if path.is_file():
+            shutil.copy2(path, dest / path.name)
+
+
 def init_empty_package(root: Path, title: str = "Untitled book") -> None:
     manuscript = root / "manuscript"
     (manuscript / "resources").mkdir(parents=True)
@@ -314,6 +323,7 @@ def init_empty_package(root: Path, title: str = "Untitled book") -> None:
     (manuscript / chapter).write_text(f"# {title}\n\nWrite the first chapter here.\n", encoding="utf-8")
     write_book_txt(root, [chapter])
     shutil.copy(BUNDLED_CSS, root / "styles" / "epub.css")
+    _seed_default_fonts(root)
 
 
 def list_files(root: Path) -> list[dict]:

@@ -39,6 +39,26 @@ def test_create_empty_book(data_dir):
     root = data_dir / "books" / book["id"]
     assert (root / "metadata.yaml").is_file()
     assert read_book_txt(root) == ["Demo.md"]
+    fonts = root / "fonts"
+    assert (fonts / "DejaVuSerif.ttf").is_file()
+    assert (fonts / "DejaVuSerif-Bold.ttf").is_file()
+    assert (fonts / "DejaVuSerif-Italic.ttf").is_file()
+    assert (fonts / "DejaVuSerif-BoldItalic.ttf").is_file()
+    assert (fonts / "DejaVuSans.ttf").is_file()
+    assert (fonts / "DejaVuSans-Bold.ttf").is_file()
+    assert (fonts / "DejaVuSansMono.ttf").is_file()
+    assert (fonts / "LICENSE.txt").is_file()
+
+
+def test_import_preserves_package_fonts(data_dir, tiny_package):
+    custom = tiny_package / "fonts"
+    custom.mkdir()
+    marker = custom / "custom-marker.ttf"
+    marker.write_bytes(b"not-a-real-font")
+    book = import_book(_zip_tree(tiny_package))
+    root = data_dir / "books" / book["id"]
+    assert (root / "fonts" / "custom-marker.ttf").read_bytes() == b"not-a-real-font"
+    assert not (root / "fonts" / "DejaVuSerif-Italic.ttf").exists()
 
 
 def test_import_edit_export(data_dir, tiny_package):
