@@ -1247,9 +1247,33 @@
     });
 
     setupLeaveSave();
+    setupForceSaveShortcut();
     setupChapterTags();
     setupChapterHistory();
     setupChapterDownload();
+  }
+
+  function setupForceSaveShortcut() {
+    document.addEventListener(
+      "keydown",
+      function (event) {
+        if (!(event.ctrlKey || event.metaKey)) return;
+        if (event.altKey) return;
+        var key = event.key || "";
+        if (key !== "s" && key !== "S") return;
+        var form = document.getElementById("editor-form");
+        if (!form) return;
+        event.preventDefault();
+        event.stopPropagation();
+        // Single-flight: ignore fat-finger while a save is in progress.
+        if (saving) return;
+        // Idempotent when clean: suppress browser Save Page only.
+        if (!dirty) return;
+        clearTimeout(timer);
+        saveNow();
+      },
+      true
+    );
   }
 
   function closeChapterMoreMenu() {

@@ -118,6 +118,18 @@ def test_autosave_returns_json(data_dir):
     assert response.json()["ok"] is True
 
 
+def test_force_save_shortcut_wiring(data_dir):
+    client = TestClient(app)
+    studio_js = client.get("/static/studio.js")
+    assert studio_js.status_code == 200
+    assert b"setupForceSaveShortcut" in studio_js.content
+    assert b"event.ctrlKey || event.metaKey" in studio_js.content
+    assert b'key !== "s" && key !== "S"' in studio_js.content
+    assert b"if (saving) return" in studio_js.content
+    assert b"if (!dirty) return" in studio_js.content
+    assert b"preventDefault" in studio_js.content
+
+
 def test_chapter_history_list_and_restore(data_dir):
     book = create_book("History Book")
     client = TestClient(app)

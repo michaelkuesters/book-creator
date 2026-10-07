@@ -44,6 +44,20 @@ Scenario: Autosave
   When the idle timer fires
   Then the chapter file is saved through the autosave endpoint
 
+Scenario: Force save with keyboard
+  Given an open chapter on Write with unsaved edits
+  When the operator presses Ctrl+S (Windows/Linux) or Cmd+S (macOS)
+  Then the browser’s default Save Page behaviour does not run
+  And the chapter is saved immediately through the same autosave endpoint
+  And the editor content is otherwise unchanged by that keystroke
+  And a second Ctrl+S / Cmd+S while that save is in flight is ignored (idempotent; no overlapping save)
+
+Scenario: Force save when already clean
+  Given an open chapter on Write with no unsaved edits
+  When the operator presses Ctrl+S or Cmd+S
+  Then the browser default is still prevented
+  And no extra write is performed
+
 Scenario: Autosave on leave
   Given the operator has unsaved edits in the chapter editor
   When they navigate away in the studio or close the tab
@@ -167,7 +181,7 @@ Scenario: Numbered chapter titles stay unescaped
 - Details fields map to `metadata.yaml`: title, subtitle, author, lang, rights, date, description.
 - Assets live in `manuscript/resources/`; images are served at `/books/<id>/assets/<name>` for preview and editor display.
 - Embedded images in Markdown use `resources/<filename>` so Pandoc’s manuscript resource path still resolves them.
-- The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no explicit Save control on Write). Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax. Typing Markdown in the WYSIWYG view converts a construct as soon as it is completed: inline emphasis/code, links, images, ATX headings (`#`–`######` plus space), bullet and ordered lists, task items (`- [ ]` / `- [x]`), block quotes, thematic breaks, and GFM pipe tables. Raw delimiter characters must not remain visible after that conversion.
+- The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no Save button on Write). Operators can force an immediate save with Ctrl+S (Windows/Linux) or Cmd+S (macOS): the studio prevents the browser default Save Page action, does not alter editor content for that keystroke, and saves through the same autosave endpoint. That forced save is idempotent and single-flight: while a save request is in progress, further Ctrl+S / Cmd+S presses are ignored; when the chapter is already clean, the shortcut only suppresses the browser default and does not write again. Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax. Typing Markdown in the WYSIWYG view converts a construct as soon as it is completed: inline emphasis/code, links, images, ATX headings (`#`–`######` plus space), bullet and ordered lists, task items (`- [ ]` / `- [x]`), block quotes, thematic breaks, and GFM pipe tables. Raw delimiter characters must not remain visible after that conversion.
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
 - Saving must not replace a substantial on-disk chapter with blank or heading-only text (guards against undo-to-empty then autosave).
 - Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History (in the chapter More menu) to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
@@ -186,6 +200,9 @@ Scenario: Numbered chapter titles stay unescaped
 - Must not persist a blank or heading-only overwrite over a substantial chapter.
 - Must not store HTML as the chapter source of truth.
 - Must not require a client-side SPA build; server-rendered pages plus small scripts (and CDN editor assets) are enough.
+- Must not add a visible Save button on Write; forced save is keyboard-only (Ctrl+S / Cmd+S).
+- Must not let Ctrl+S / Cmd+S trigger the browser Save Page dialog or change chapter text as a side effect of that shortcut.
+- Must not start a second overlapping save from Ctrl+S / Cmd+S while one is already in flight.
 - Must not bury book-level Download or Publish only inside the chapter layout; they belong in the book navbar (chapter Markdown download is a separate Write More-menu action).
 - Must not leave Tags, History, and Download chapter as three peer toolbar buttons that crowd Insert illustration; they belong in More.
 - Must not persist CommonMark heading escapes such as `2\.` in on-disk chapter titles or the Write title field.
@@ -208,11 +225,11 @@ Scenario: Numbered chapter titles stay unescaped
 ## Acceptance criteria
 
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
-2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save now control; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; History offers Squash only when something can be collapsed, with a `<dialog>` scope picker (Same days / Same week / All, only when applicable) that keeps the newest version per group without retimestamping it; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency; highlighting uses maximal equal-substring matching; when the unsaved diff reaches about fifty segments the chapter autosaves to consolidate.
+2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save button; Ctrl+S / Cmd+S forces an immediate save via that endpoint without browser Save Page or content mutation from the shortcut, ignores further presses while a save is in flight, and is a no-op write when already clean; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; History offers Squash only when something can be collapsed, with a `<dialog>` scope picker (Same days / Same week / All, only when applicable) that keeps the newest version per group without retimestamping it; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency; highlighting uses maximal equal-substring matching; when the unsaved diff reaches about fifty segments the chapter autosaves to consolidate.
 3. WYSIWYG displays formatted Markdown (emphasis, links, images, headings, lists, tasks, quotes, rules, tables) while the saved file remains Markdown; pasted or inserted Markdown is parsed into that view; completing typed Markdown constructs converts them in place to formatted text.
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
 7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown; Write keeps Insert illustration primary while Tags, History, and Download chapter live in More.
 8. Download chapter returns that chapter’s Latest Markdown with filename `{title-dots-to-dashes}-{YYYY-MM-DD-HHMM}.md`; dirty editor content is saved first; numbered headings do not persist `\.` escapes after save or in titles.
-9. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, asset upload/serve, heading unescape, and chapter download).
+9. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, Ctrl/Cmd+S force-save wiring in studio.js, chapter history list/revision/checkpoint/squash, historic-view UI without overwrite, chapter rename/reorder/remove, asset upload/serve, heading unescape, and chapter download).
