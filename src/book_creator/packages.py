@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import shutil
 import zipfile
@@ -20,10 +21,12 @@ PROTECTED = {"manuscript/Book.txt", "metadata.yaml"}
 EDITABLE_SUFFIXES = config.EDITABLE_SUFFIXES
 MAX_ZIP_BYTES = 200 * 1024 * 1024
 HISTORY_DIR = ".history"
+TAGS_DIR = ".tags"
 SQUASH_MODES = frozenset({"same_days", "same_week", "all"})
 # Refuse saving blank / heading-only text over a chapter that already has real content
 # (guards undo-to-blank + autosave from wiping the manuscript).
 _WIPE_MIN_EXISTING = 80
+_TAG_LABEL_MAX = 120
 _WORD_RE = re.compile(r"\b[\w'-]+\b")
 
 
@@ -177,6 +180,7 @@ def rename_chapter(root: Path, relative: str, title: str) -> dict:
     new_path = path.relative_to(root).as_posix()
     if new_path != rel:
         _move_chapter_history(root, rel, new_path)
+        _move_chapter_tags(root, rel, new_path)
     return {"title": cleaned, "name": new_name, "path": new_path}
 
 
@@ -268,7 +272,11 @@ def list_files(root: Path) -> list[dict]:
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        if rel.startswith("dist/") or rel.startswith(f"{HISTORY_DIR}/"):
+        if (
+            rel.startswith("dist/")
+            or rel.startswith(f"{HISTORY_DIR}/")
+            or rel.startswith(f"{TAGS_DIR}/")
+        ):
             continue
         entries.append(
             {
@@ -493,14 +501,16 @@ def restore_chapter_history(root: Path, relative: str, revision_id: str) -> str:
     return content
 
 
-def _move_chapter_history(root: Path, old_rel: str, new_rel: str) -> None:
-    old_dir = root / HISTORY_DIR / old_rel
+def _move_chapter_sidecar(root: Path, kind: str, old_rel: str, new_rel: str) -> None:
+    old_dir = root / kind / old_rel
     if not old_dir.is_dir() or old_rel == new_rel:
         return
-    new_dir = root / HISTORY_DIR / new_rel
+    new_dir = root / kind / new_rel
     new_dir.parent.mkdir(parents=True, exist_ok=True)
     if new_dir.exists():
-        for item in old_dir.glob("*.md"):
+        for item in old_dir.iterdir():
+            if not item.is_file():
+                continue
             dest = new_dir / item.name
             if dest.exists():
                 dest = new_dir / f"{item.stem}-moved{item.suffix}"
@@ -508,6 +518,125 @@ def _move_chapter_history(root: Path, old_rel: str, new_rel: str) -> None:
         shutil.rmtree(old_dir, ignore_errors=True)
     else:
         old_dir.rename(new_dir)
+
+
+def _move_chapter_history(root: Path, old_rel: str, new_rel: str) -> None:
+    _move_chapter_sidecar(root, HISTORY_DIR, old_rel, new_rel)
+
+
+def _tags_chapter_dir(root: Path, rel: str) -> Path:
+    return resolve_inside(root, f"{TAGS_DIR}/{rel}")
+
+
+def _normalize_tag_label(label: str) -> str:
+    cleaned = " ".join((label or "").split())
+    if not cleaned:
+        raise PackageError("Tag label is required")
+    if len(cleaned) > _TAG_LABEL_MAX:
+        raise PackageError(f"Tag label must be {_TAG_LABEL_MAX} characters or fewer")
+    return cleaned
+
+
+def _tag_meta_path(content_path: Path) -> Path:
+    return content_path.with_suffix(".json")
+
+
+def _read_tag_label(content_path: Path) -> str:
+    meta = _tag_meta_path(content_path)
+    if not meta.is_file():
+        return content_path.stem
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return content_path.stem
+    label = data.get("label") if isinstance(data, dict) else None
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return content_path.stem
+
+
+def _tag_meta(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    return {
+        "id": path.name,
+        "label": _read_tag_label(path),
+        "saved_at": _revision_saved_at(path.stem),
+        "word_count": _word_count(text),
+    }
+
+
+def create_chapter_tag(root: Path, relative: str, label: str) -> dict:
+    """Snapshot on-disk chapter content as an operator-named tag."""
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have tags")
+    cleaned = _normalize_tag_label(label)
+    path = resolve_inside(root, rel)
+    if not path.is_file():
+        raise PackageError("File not found")
+    normalized = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    tags_dir = _tags_chapter_dir(root, rel)
+    tags_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    tag_id = f"{stamp}.md"
+    target = tags_dir / tag_id
+    suffix = 1
+    while target.exists():
+        tag_id = f"{stamp}-{suffix}.md"
+        target = tags_dir / tag_id
+        suffix += 1
+    target.write_text(normalized, encoding="utf-8")
+    _tag_meta_path(target).write_text(
+        json.dumps({"label": cleaned}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "id": tag_id,
+        "label": cleaned,
+        "saved_at": _revision_saved_at(Path(tag_id).stem),
+        "word_count": _word_count(normalized),
+    }
+
+
+def list_chapter_tags(root: Path, relative: str) -> list[dict]:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have tags")
+    tags_dir = root / TAGS_DIR / rel
+    if not tags_dir.is_dir():
+        return []
+    paths = sorted(tags_dir.glob("*.md"), key=lambda p: _revision_sort_key(p.name), reverse=True)
+    return [_tag_meta(path) for path in paths]
+
+
+def read_chapter_tag(root: Path, relative: str, tag_id: str) -> str:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have tags")
+    if "/" in tag_id or "\\" in tag_id or tag_id in {".", ".."}:
+        raise PackageError("Invalid tag")
+    path = resolve_inside(root, f"{TAGS_DIR}/{rel}/{tag_id}")
+    if not path.is_file():
+        raise PackageError("Tag not found")
+    return path.read_text(encoding="utf-8")
+
+
+def delete_chapter_tag(root: Path, relative: str, tag_id: str) -> None:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have tags")
+    if "/" in tag_id or "\\" in tag_id or tag_id in {".", ".."}:
+        raise PackageError("Invalid tag")
+    path = resolve_inside(root, f"{TAGS_DIR}/{rel}/{tag_id}")
+    if not path.is_file():
+        raise PackageError("Tag not found")
+    meta = _tag_meta_path(path)
+    path.unlink()
+    meta.unlink(missing_ok=True)
+
+
+def _move_chapter_tags(root: Path, old_rel: str, new_rel: str) -> None:
+    _move_chapter_sidecar(root, TAGS_DIR, old_rel, new_rel)
 
 
 def _kind(rel: str, path: Path) -> str:
@@ -622,7 +751,7 @@ def zip_package(root: Path, include_dist: bool = False) -> bytes:
             if not path.is_file():
                 continue
             rel = path.relative_to(root).as_posix()
-            if rel.startswith(f"{HISTORY_DIR}/"):
+            if rel.startswith(f"{HISTORY_DIR}/") or rel.startswith(f"{TAGS_DIR}/"):
                 continue
             if not include_dist and rel.startswith("dist/"):
                 continue

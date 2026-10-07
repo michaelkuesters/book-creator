@@ -25,7 +25,10 @@ from book_creator.packages import (
     list_assets,
     checkpoint_chapter_history,
     chapter_history_squash_options,
+    create_chapter_tag,
+    delete_chapter_tag,
     list_chapter_history,
+    list_chapter_tags,
     list_chapters,
     list_editions,
     list_files,
@@ -33,6 +36,7 @@ from book_creator.packages import (
     load_metadata,
     read_book_txt,
     read_chapter_history,
+    read_chapter_tag,
     read_text_file,
     resolve_inside,
     restore_chapter_history,
@@ -347,6 +351,62 @@ def chapter_history_restore(
         raise HTTPException(400, str(exc)) from exc
     if _wants_json(request):
         return JSONResponse({"ok": True, "path": path, "id": id, "content": content})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+
+
+@app.get("/books/{book_id}/files/tags")
+def chapter_tags(book_id: str, path: str):
+    _book_or_404(book_id)
+    try:
+        items = list_chapter_tags(book_root(book_id), path)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return JSONResponse({"ok": True, "path": path, "tags": items})
+
+
+@app.post("/books/{book_id}/files/tags")
+def chapter_tags_create(
+    request: Request,
+    book_id: str,
+    path: str = Form(...),
+    label: str = Form(...),
+):
+    _book_or_404(book_id)
+    try:
+        tag = create_chapter_tag(book_root(book_id), path, label)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, "tag": tag})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+
+
+@app.get("/books/{book_id}/files/tags/revision")
+def chapter_tags_revision(book_id: str, path: str, id: str):
+    _book_or_404(book_id)
+    try:
+        content = read_chapter_tag(book_root(book_id), path, id)
+    except PackageError as exc:
+        raise HTTPException(404 if "not found" in str(exc).lower() else 400, str(exc)) from exc
+    return JSONResponse({"ok": True, "path": path, "id": id, "content": content})
+
+
+@app.post("/books/{book_id}/files/tags/delete")
+def chapter_tags_delete(
+    request: Request,
+    book_id: str,
+    path: str = Form(...),
+    id: str = Form(...),
+):
+    _book_or_404(book_id)
+    try:
+        delete_chapter_tag(book_root(book_id), path, id)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(404 if "not found" in str(exc).lower() else 400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, "id": id})
     return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
 
 

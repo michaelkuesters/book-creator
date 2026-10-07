@@ -79,6 +79,7 @@
                spellcheck="true">
       </div>
       <div class="row editor-toolbar-extra">
+        <button type="button" class="button ghost" id="chapter-tags-btn">Tags</button>
         <button type="button" class="button ghost" id="chapter-history-btn">History</button>
         <button type="button" class="button ghost" id="insert-asset-btn">Insert illustration</button>
       </div>
@@ -105,6 +106,43 @@
     {% endif %}
   </section>
 </div>
+
+<dialog id="chapter-tags-dialog" class="sheet">
+  <div class="sheet-body">
+    <h2>Chapter tags</h2>
+    <p class="muted">Named snapshots of this chapter as of now. Opening a tag shows it here without changing Latest.</p>
+    <ul class="history-list" id="chapter-tags-list"></ul>
+    <p class="muted" id="chapter-tags-empty" hidden>No tags yet.</p>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" id="chapter-tag-create-btn">New tag</button>
+      <button type="button" class="button ghost" data-close-dialog>Close</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="chapter-tag-create-dialog" class="sheet">
+  <form class="sheet-body" id="chapter-tag-create-form">
+    <h2>New tag</h2>
+    <p class="muted">Label this chapter as it stands now.</p>
+    <label>Label <input id="chapter-tag-label" name="label" required maxlength="120" autocomplete="off" placeholder="section 1 reworked"></label>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit">Create tag</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="chapter-tag-delete-dialog" class="sheet">
+  <form class="sheet-body" id="chapter-tag-delete-form">
+    <h2>Delete tag</h2>
+    <p>Delete tag <strong id="chapter-tag-delete-label"></strong>? Latest and History stay unchanged.</p>
+    <input type="hidden" id="chapter-tag-delete-id" name="id">
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit" class="danger">Delete</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="chapter-history-dialog" class="sheet">
   <div class="sheet-body">
@@ -203,5 +241,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
-<script src="/static/studio.js?v=18"></script>
+<script src="/static/studio.js?v=19"></script>
 {% endblock %}

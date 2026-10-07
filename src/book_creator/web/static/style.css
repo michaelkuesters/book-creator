@@ -791,6 +791,12 @@ button.danger.ghost {
   min-width: 0;
 }
 .history-meta strong { font-size: 0.92rem; }
+.history-item-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.35rem;
+  align-items: center;
+}
 .version-banner {
   display: flex;
   justify-content: space-between;

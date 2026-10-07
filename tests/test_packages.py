@@ -130,6 +130,62 @@ def test_leave_checkpoint_keeps_timestamped_versions(data_dir):
         assert not any(name.startswith(".history/") for name in archive.namelist())
 
 
+def test_chapter_tags_create_list_read_delete(data_dir):
+    from book_creator.packages import (
+        TAGS_DIR,
+        checkpoint_chapter_history,
+        create_chapter_tag,
+        delete_chapter_tag,
+        list_chapter_history,
+        list_chapter_tags,
+        read_chapter_tag,
+        squash_chapter_history,
+    )
+
+    book = create_book("Tag Book")
+    root = data_dir / "books" / book["id"]
+    path = "manuscript/Tag Book.md"
+    first = "# Tag\n\nFirst tagged body with enough text.\n"
+    second = "# Tag\n\nSecond tagged body with enough text.\n"
+    write_text_file(root, path, first)
+    with pytest.raises(PackageError):
+        create_chapter_tag(root, path, "   ")
+    tag = create_chapter_tag(root, path, "section 1 reworked")
+    assert tag["label"] == "section 1 reworked"
+    assert tag["word_count"] > 0
+    assert "saved_at" in tag
+    tags = list_chapter_tags(root, path)
+    assert len(tags) == 1
+    assert tags[0]["id"] == tag["id"]
+    assert tags[0]["label"] == "section 1 reworked"
+    assert read_chapter_tag(root, path, tag["id"]) == first
+    assert read_text_file(root, path) == first
+
+    write_text_file(root, path, second)
+    assert checkpoint_chapter_history(root, path) is not None
+    write_text_file(root, path, first)
+    assert checkpoint_chapter_history(root, path) is not None
+    assert len(list_chapter_history(root, path)) == 2
+    create_chapter_tag(root, path, "after history")
+    assert len(list_chapter_tags(root, path)) == 2
+
+    squash_chapter_history(root, path, "all")
+    assert len(list_chapter_history(root, path)) == 1
+    assert len(list_chapter_tags(root, path)) == 2
+
+    delete_chapter_tag(root, path, tag["id"])
+    remaining = list_chapter_tags(root, path)
+    assert len(remaining) == 1
+    assert remaining[0]["label"] == "after history"
+    assert read_text_file(root, path) == first
+    assert len(list_chapter_history(root, path)) == 1
+    assert not any(item["path"].startswith(f"{TAGS_DIR}/") for item in list_files(root))
+    payload = zip_package(root)
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        assert not any(name.startswith(f"{TAGS_DIR}/") for name in archive.namelist())
+        assert not any(name.startswith(".history/") for name in archive.namelist())
+
+
 def test_squash_chapter_history_keeps_newest_timestamp(data_dir):
     from book_creator.packages import (
         HISTORY_DIR,

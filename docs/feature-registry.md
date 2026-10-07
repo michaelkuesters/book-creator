@@ -18,6 +18,7 @@ Load the guidelines every session. Load **one** feature document for the approve
 | --- | --- | --- | --- | --- |
 | `library` | Library | [features/library.md](features/library.md) | active | Browse, create, import, and remove books; cover-led shelf |
 | `manuscript-editing` | Manuscript editing | [features/manuscript-editing.md](features/manuscript-editing.md) | active | Write chapters (WYSIWYG→Markdown), manage assets, edit details and order |
+| `chapter-tags` | Chapter tags | [features/chapter-tags.md](features/chapter-tags.md) | active | Named free-text tags for a chapter “as of now”; open/delete without overwriting Latest |
 | `package-exchange` | Package exchange | [features/package-exchange.md](features/package-exchange.md) | active | Upload and download Leanpub-shaped zips |
 | `edition-build` | Edition build | [features/edition-build.md](features/edition-build.md) | active | Generate and download PDF and EPUB (default studio builder or explicit override) |
 | `studio-settings` | Studio settings | [features/studio-settings.md](features/studio-settings.md) | active | Studio-wide light/dark mode; writing-area text color (localStorage) |

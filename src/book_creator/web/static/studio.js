@@ -167,10 +167,12 @@
       }
     }
     var latestMarkdown = currentMarkdown();
+    var when = formatWhen(rev.saved_at);
+    var tagLabel = typeof rev.label === "string" ? rev.label.trim() : "";
     versionView = {
       id: rev.id,
       content: content,
-      label: formatWhen(rev.saved_at),
+      label: tagLabel ? tagLabel + " · " + when : when,
       mode: "browsing",
       latestMarkdown: latestMarkdown,
     };
@@ -1135,7 +1137,192 @@
     });
 
     setupLeaveSave();
+    setupChapterTags();
     setupChapterHistory();
+  }
+
+  function setupChapterTags() {
+    var openBtn = document.getElementById("chapter-tags-btn");
+    var dialog = document.getElementById("chapter-tags-dialog");
+    var list = document.getElementById("chapter-tags-list");
+    var empty = document.getElementById("chapter-tags-empty");
+    var createBtn = document.getElementById("chapter-tag-create-btn");
+    var createDialog = document.getElementById("chapter-tag-create-dialog");
+    var createForm = document.getElementById("chapter-tag-create-form");
+    var labelInput = document.getElementById("chapter-tag-label");
+    var deleteDialog = document.getElementById("chapter-tag-delete-dialog");
+    var deleteForm = document.getElementById("chapter-tag-delete-form");
+    var deleteLabel = document.getElementById("chapter-tag-delete-label");
+    var deleteIdInput = document.getElementById("chapter-tag-delete-id");
+    var form = document.getElementById("editor-form");
+    if (!openBtn || !dialog || !list || !form) return;
+
+    function chapterPath() {
+      var input = form.querySelector('input[name="path"]');
+      return input ? input.value : "";
+    }
+
+    async function loadTags() {
+      list.innerHTML = "";
+      empty.hidden = true;
+      var path = chapterPath();
+      if (!path) return;
+      var response = await fetch(
+        "/books/" + bookId() + "/files/tags?path=" + encodeURIComponent(path),
+        { headers: { Accept: "application/json" } }
+      );
+      if (!response.ok) throw new Error("tags failed");
+      var data = await response.json();
+      var tags = data.tags || [];
+      if (!tags.length) {
+        empty.hidden = false;
+        return;
+      }
+      tags.forEach(function (tag) {
+        var li = document.createElement("li");
+        li.className = "history-item";
+        var meta = document.createElement("div");
+        meta.className = "history-meta";
+        var words = typeof tag.word_count === "number" ? tag.word_count : 0;
+        var title = document.createElement("strong");
+        title.textContent = tag.label || "Tag";
+        var detail = document.createElement("span");
+        detail.className = "muted";
+        detail.textContent =
+          formatWhen(tag.saved_at) +
+          " · " +
+          words +
+          (words === 1 ? " word" : " words");
+        meta.appendChild(title);
+        meta.appendChild(detail);
+        var actions = document.createElement("div");
+        actions.className = "history-item-actions";
+        var open = document.createElement("button");
+        open.type = "button";
+        open.className = "button ghost";
+        open.textContent = "Open";
+        open.addEventListener("click", async function () {
+          open.disabled = true;
+          try {
+            var res = await fetch(
+              "/books/" +
+                bookId() +
+                "/files/tags/revision?path=" +
+                encodeURIComponent(path) +
+                "&id=" +
+                encodeURIComponent(tag.id),
+              { headers: { Accept: "application/json" } }
+            );
+            if (!res.ok) throw new Error("tag failed");
+            var payload = await res.json();
+            if (typeof payload.content !== "string") throw new Error("tag failed");
+            await openHistoricVersion(tag, payload.content);
+            dialog.close();
+          } catch (err) {
+            setSaveStatus("Could not open tag", "error");
+            open.disabled = false;
+          }
+        });
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "button ghost";
+        remove.textContent = "Delete";
+        remove.addEventListener("click", function () {
+          if (!deleteDialog || !deleteIdInput || !deleteLabel) return;
+          deleteIdInput.value = tag.id;
+          deleteLabel.textContent = tag.label || "this tag";
+          if (typeof deleteDialog.showModal === "function") deleteDialog.showModal();
+        });
+        actions.appendChild(open);
+        actions.appendChild(remove);
+        li.appendChild(meta);
+        li.appendChild(actions);
+        list.appendChild(li);
+      });
+    }
+
+    openBtn.addEventListener("click", async function () {
+      try {
+        await loadTags();
+        if (typeof dialog.showModal === "function") dialog.showModal();
+      } catch (err) {
+        setSaveStatus("Could not load tags", "error");
+      }
+    });
+
+    if (createBtn && createDialog && labelInput) {
+      createBtn.addEventListener("click", function () {
+        labelInput.value = "";
+        if (typeof createDialog.showModal === "function") createDialog.showModal();
+        labelInput.focus();
+      });
+    }
+
+    if (createForm && createDialog && labelInput) {
+      createForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        var label = (labelInput.value || "").trim();
+        if (!label) {
+          setSaveStatus("Tag label is required", "error");
+          return;
+        }
+        var submit = createForm.querySelector('button[type="submit"]');
+        if (submit) submit.disabled = true;
+        try {
+          if (dirty) {
+            var saved = await saveNow();
+            if (!saved && dirty) {
+              setSaveStatus("Save current chapter before tagging", "error");
+              return;
+            }
+          }
+          var body = new FormData();
+          body.append("path", chapterPath());
+          body.append("label", label);
+          var response = await fetch("/books/" + bookId() + "/files/tags", {
+            method: "POST",
+            body: body,
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error("create tag failed");
+          createDialog.close();
+          await loadTags();
+          setSaveStatus("Tag created", "saved");
+        } catch (err) {
+          setSaveStatus("Could not create tag", "error");
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+    }
+
+    if (deleteForm && deleteDialog && deleteIdInput) {
+      deleteForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        var tagId = deleteIdInput.value;
+        if (!tagId) return;
+        var submit = deleteForm.querySelector('button[type="submit"]');
+        if (submit) submit.disabled = true;
+        try {
+          var body = new FormData();
+          body.append("path", chapterPath());
+          body.append("id", tagId);
+          var response = await fetch("/books/" + bookId() + "/files/tags/delete", {
+            method: "POST",
+            body: body,
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error("delete tag failed");
+          deleteDialog.close();
+          await loadTags();
+          setSaveStatus("Tag deleted", "saved");
+        } catch (err) {
+          setSaveStatus("Could not delete tag", "error");
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+    }
   }
 
   function looksLikeMarkdown(text) {

@@ -215,6 +215,110 @@ def test_chapter_history_list_and_restore(data_dir):
     assert b"Open Read-Only" in page.content
 
 
+def test_chapter_tags_create_open_delete(data_dir):
+    book = create_book("Tagged Book")
+    client = TestClient(app)
+    path = "manuscript/Tagged Book.md"
+    body = "# Tagged\n\nEnough characters for a tagged snapshot.\n"
+    assert (
+        client.post(
+            f"/books/{book['id']}/files",
+            data={"path": path, "content": body},
+            params={"autosave": "true"},
+            headers={"Accept": "application/json"},
+        ).status_code
+        == 200
+    )
+    empty = client.get(
+        f"/books/{book['id']}/files/tags",
+        params={"path": path},
+        headers={"Accept": "application/json"},
+    )
+    assert empty.status_code == 200
+    assert empty.json()["tags"] == []
+    created = client.post(
+        f"/books/{book['id']}/files/tags",
+        data={"path": path, "label": "section 1 reworked"},
+        headers={"Accept": "application/json"},
+    )
+    assert created.status_code == 200
+    tag = created.json()["tag"]
+    assert tag["label"] == "section 1 reworked"
+    assert tag["word_count"] > 0
+    listed = client.get(
+        f"/books/{book['id']}/files/tags",
+        params={"path": path},
+        headers={"Accept": "application/json"},
+    )
+    assert listed.status_code == 200
+    assert len(listed.json()["tags"]) == 1
+    preview = client.get(
+        f"/books/{book['id']}/files/tags/revision",
+        params={"path": path, "id": tag["id"]},
+        headers={"Accept": "application/json"},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["content"] == body
+    later = "# Tagged\n\nLater edits that remain Latest on disk.\n"
+    assert (
+        client.post(
+            f"/books/{book['id']}/files",
+            data={"path": path, "content": later},
+            params={"autosave": "true", "checkpoint": "true"},
+            headers={"Accept": "application/json"},
+        ).status_code
+        == 200
+    )
+    assert read_text_file(book_root(book["id"]), path) == later
+    assert (
+        client.get(
+            f"/books/{book['id']}/files/tags/revision",
+            params={"path": path, "id": tag["id"]},
+            headers={"Accept": "application/json"},
+        ).json()["content"]
+        == body
+    )
+    history = client.get(
+        f"/books/{book['id']}/files/history",
+        params={"path": path},
+        headers={"Accept": "application/json"},
+    )
+    assert history.status_code == 200
+    assert all("label" not in rev or rev.get("label") is None for rev in history.json()["revisions"])
+    assert len(history.json()["revisions"]) >= 1
+    deleted = client.post(
+        f"/books/{book['id']}/files/tags/delete",
+        data={"path": path, "id": tag["id"]},
+        headers={"Accept": "application/json"},
+    )
+    assert deleted.status_code == 200
+    assert (
+        client.get(
+            f"/books/{book['id']}/files/tags",
+            params={"path": path},
+            headers={"Accept": "application/json"},
+        ).json()["tags"]
+        == []
+    )
+    assert read_text_file(book_root(book["id"]), path) == later
+    assert len(
+        client.get(
+            f"/books/{book['id']}/files/history",
+            params={"path": path},
+            headers={"Accept": "application/json"},
+        ).json()["revisions"]
+    ) >= 1
+    page = client.get(f"/books/{book['id']}?file={path}")
+    assert page.status_code == 200
+    assert b"chapter-tags-btn" in page.content
+    assert b"chapter-tags-dialog" in page.content
+    assert b"chapter-tag-create-dialog" in page.content
+    assert b"chapter-tag-delete-dialog" in page.content
+    studio_js = client.get("/static/studio.js")
+    assert b"setupChapterTags" in studio_js.content
+    assert b"files/tags" in studio_js.content
+
+
 def test_autosave_refuses_empty_wipe(data_dir):
     book = create_book("Wipe Guard")
     client = TestClient(app)
