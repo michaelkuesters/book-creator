@@ -6,17 +6,32 @@ from book_creator.app import app
 from book_creator.packages import create_book, read_book_txt, read_text_file, book_root
 
 
-def test_settings_page(data_dir):
+def test_settings_sheet(data_dir):
     client = TestClient(app)
-    page = client.get("/settings")
-    assert page.status_code == 200
-    assert b"Settings" in page.content
-    assert b'theme-light' in page.content or b'id="theme-light"' in page.content
-    assert b'id="theme-dark"' in page.content
-    assert b'id="ink-color"' in page.content
-    assert b'type="color"' in page.content
     home = client.get("/")
-    assert b'href="/settings"' in home.content
+    assert home.status_code == 200
+    assert b'id="studio-settings"' in home.content
+    assert b'id="open-settings"' in home.content
+    assert b'id="theme-light"' in home.content
+    assert b'id="theme-dark"' in home.content
+    assert b'id="ink-color"' in home.content
+    assert b'type="color"' in home.content
+    assert b"Writing text color" in home.content
+    book = create_book("Settings Book")
+    page = client.get(f"/books/{book['id']}")
+    assert page.status_code == 200
+    assert b'id="studio-settings"' in page.content
+    assert b'id="open-settings"' in page.content
+    redirected = client.get("/settings", follow_redirects=False)
+    assert redirected.status_code == 303
+    assert redirected.headers["location"] == "/"
+    css = client.get("/static/style.css")
+    assert css.status_code == 200
+    assert b"--write-ink" in css.content
+    # Toast UI hardcodes content colors; studio rules must beat light and dark themes.
+    assert b".wysiwyg-host .toastui-editor-contents p" in css.content
+    assert b".wysiwyg-host .toastui-editor-dark .toastui-editor-contents p" in css.content
+    assert b"color: var(--write-ink)" in css.content
 
 
 def test_home_and_book_pages(data_dir):
@@ -26,7 +41,7 @@ def test_home_and_book_pages(data_dir):
     assert home.status_code == 200
     assert b"Library" in home.content
     assert b"UI Book" in home.content
-    assert b'href="/settings"' in home.content
+    assert b'id="open-settings"' in home.content
     page = client.get(f"/books/{book['id']}")
     assert page.status_code == 200
     assert b"Contents" in page.content

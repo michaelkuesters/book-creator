@@ -6,3 +6,4 @@ __pycache__/
 /data/
 .env
 *.sqlite3
+.caddy-local-root.crt

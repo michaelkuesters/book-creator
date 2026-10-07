@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -42,15 +43,17 @@ from book_creator.packages import (
 
 WEB = Path(__file__).resolve().parent / "web"
 
-app = FastAPI(title="Book Creator")
-templates = Jinja2Templates(directory=str(WEB / "templates"))
-app.mount("/static", StaticFiles(directory=str(WEB / "static")), name="static")
 
-
-@app.on_event("startup")
-def startup() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     ensure_data_dirs()
     init_db()
+    yield
+
+
+app = FastAPI(title="Book Creator", lifespan=lifespan)
+templates = Jinja2Templates(directory=str(WEB / "templates"))
+app.mount("/static", StaticFiles(directory=str(WEB / "static")), name="static")
 
 
 def _book_or_404(book_id: str) -> dict:
@@ -89,9 +92,9 @@ def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"books": list_library_books()})
 
 
-@app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
-    return templates.TemplateResponse(request, "settings.html", {})
+@app.get("/settings")
+def settings_page():
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/books")

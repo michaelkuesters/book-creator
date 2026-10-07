@@ -23,11 +23,13 @@ A raw package is a zip (optional single wrapper folder) containing:
 
 ```sh
 make run
+make trust
 ```
 
-Open http://127.0.0.1:8080 (bound to localhost). Data lives in the Docker volume.
+Open https://books.localhost:17443 (Caddy on a dedicated loopback port; stack runs detached). Run `make trust` once per machine so the browser trusts Caddy’s local CA, then restart the browser if needed. Data lives in the Docker volume.
 
 ```sh
+make stop
 make build
 make test
 ```

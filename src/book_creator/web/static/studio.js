@@ -149,6 +149,8 @@
     if (!host || !textarea || !window.toastui || !window.toastui.Editor) return;
 
     const initial = toPreviewMarkdown(textarea.value || "");
+    const theme =
+      document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
     editor = new toastui.Editor({
       el: host,
       height: "calc(100vh - 15rem)",
@@ -156,6 +158,7 @@
       previewStyle: "vertical",
       hideModeSwitch: true,
       usageStatistics: false,
+      theme: theme,
       initialValue: initial,
       toolbarItems: [
         ["heading", "bold", "italic", "strike"],
@@ -175,6 +178,12 @@
           }
         },
       },
+    });
+
+    window.addEventListener("bc:theme", function (event) {
+      const next = event && event.detail && event.detail.theme === "dark" ? "dark" : "light";
+      const root = host.querySelector(".toastui-editor-defaultUI");
+      if (root) root.classList.toggle("toastui-editor-dark", next === "dark");
     });
 
     editor.on("change", scheduleSave);

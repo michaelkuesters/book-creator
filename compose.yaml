@@ -2,12 +2,27 @@ services:
   studio:
     image: book-creator
     build: .
-    ports:
-      - "127.0.0.1:8080:8080"
+    expose:
+      - "8080"
     volumes:
       - book-data:/data
     environment:
       DATA_DIR: /data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - studio
+    ports:
+      - "127.0.0.1:17443:17443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
 
 volumes:
   book-data:
+  caddy-data:
+  caddy-config:

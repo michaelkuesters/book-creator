@@ -6,9 +6,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md Makefile Caddyfile compose.yaml ./
 COPY src ./src
 COPY tests ./tests
+COPY scripts ./scripts
 
 RUN pip install --no-cache-dir -e ".[dev]"
 

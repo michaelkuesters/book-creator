@@ -1,5 +1,4 @@
-:root,
-html[data-theme="light"] {
+:root {
   --ink: #1a2330;
   --accent: #0b6e7a;
   --accent-deep: #08545d;
@@ -11,7 +10,7 @@ html[data-theme="light"] {
   --fail: #a33b3b;
   --shadow: 0 10px 30px rgba(26, 35, 48, 0.08);
   --shadow-cover: 0 12px 28px rgba(26, 35, 48, 0.18);
-  --topbar-bg: rgba(255, 255, 255, 0.86);
+  --topbar-bg: #ffffff;
   --nav-bg: #f7f9fb;
   --hover-bg: #eef2f6;
   --serif: "Fraunces", Georgia, serif;
@@ -29,11 +28,12 @@ html[data-theme="dark"] {
   --fail: #e07070;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --shadow-cover: 0 12px 28px rgba(0, 0, 0, 0.45);
-  --topbar-bg: rgba(18, 24, 32, 0.92);
+  --topbar-bg: #121820;
   --nav-bg: #151c26;
   --hover-bg: #243041;
 }
 html {
+  --write-ink: var(--ink);
   --ink-soft: color-mix(in srgb, var(--ink) 72%, var(--paper));
   --muted: color-mix(in srgb, var(--ink) 48%, var(--paper));
   color-scheme: light;
@@ -72,10 +72,9 @@ a { color: var(--accent); }
   padding: 0.95rem 1.75rem;
   background: var(--topbar-bg);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 40;
 }
 .brand { min-width: 0; }
 .brand-mark {
@@ -124,6 +123,10 @@ a { color: var(--accent); }
   color: #fff;
 }
 .settings-link {
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
   text-decoration: none;
   color: var(--ink-soft);
   font-size: 0.9rem;
@@ -133,11 +136,6 @@ a { color: var(--accent); }
   border: 1px solid transparent;
 }
 .settings-link:hover {
-  color: var(--ink);
-  background: var(--hover-bg);
-  border-color: var(--line);
-}
-.settings-link.active {
   color: var(--ink);
   background: var(--hover-bg);
   border-color: var(--line);
@@ -310,20 +308,15 @@ main { padding: 1.6rem 1.75rem 2.5rem; }
   max-width: 820px;
   margin: 0 auto;
 }
-.settings-page {
-  max-width: 640px;
-  margin: 0 auto;
-}
-.settings-page h1 {
-  margin: 0;
-  font-family: var(--serif);
-  font-size: clamp(1.8rem, 3vw, 2.2rem);
-  letter-spacing: -0.02em;
-}
+.settings-sheet { width: min(480px, calc(100vw - 2rem)); }
 .settings-fields {
   display: grid;
-  gap: 1.25rem;
-  margin-top: 1.25rem;
+  gap: 1.1rem;
+}
+.settings-fields > .muted { margin: 0; }
+.settings-hint {
+  margin: -0.35rem 0 0.55rem;
+  font-size: 0.9rem;
 }
 .settings-fields fieldset {
   margin: 0;
@@ -445,23 +438,87 @@ main { padding: 1.6rem 1.75rem 2.5rem; }
   overflow: hidden;
   background: var(--panel);
   transition: background-color 0.2s ease;
+  isolation: isolate;
 }
 .wysiwyg-host.is-dirty {
   background: color-mix(in srgb, #8eb6e0 28%, var(--panel));
 }
 .wysiwyg-host.is-dirty .toastui-editor-defaultUI,
+.wysiwyg-host.is-dirty .toastui-editor-md-container,
 .wysiwyg-host.is-dirty .toastui-editor-ww-container,
 .wysiwyg-host.is-dirty .toastui-editor-contents {
-  background: transparent;
+  background: transparent !important;
 }
 .wysiwyg-host .toastui-editor-defaultUI {
   border: 0;
+  color: var(--ink);
+}
+.wysiwyg-host .toastui-editor-md-container,
+.wysiwyg-host .toastui-editor-ww-container {
+  background-color: var(--panel);
+  z-index: 1;
 }
 .wysiwyg-host .toastui-editor-ww-container,
-.wysiwyg-host .toastui-editor-contents {
+.wysiwyg-host .toastui-editor-contents,
+.wysiwyg-host .ProseMirror {
   font-family: var(--sans);
   font-size: 1rem;
   line-height: 1.55;
+  color: var(--write-ink);
+  z-index: 1;
+}
+/* Toast UI hardcodes #222/#fff on content nodes and loads after style.css;
+   beat both light and dark editor themes so --write-ink reaches the ink. */
+.wysiwyg-host .ProseMirror,
+.wysiwyg-host .toastui-editor-contents,
+.wysiwyg-host .toastui-editor-contents h1,
+.wysiwyg-host .toastui-editor-contents h2,
+.wysiwyg-host .toastui-editor-contents h3,
+.wysiwyg-host .toastui-editor-contents h4,
+.wysiwyg-host .toastui-editor-contents h5,
+.wysiwyg-host .toastui-editor-contents h6,
+.wysiwyg-host .toastui-editor-contents p,
+.wysiwyg-host .toastui-editor-contents li,
+.wysiwyg-host .toastui-editor-contents dir,
+.wysiwyg-host .toastui-editor-contents menu,
+.wysiwyg-host .toastui-editor-contents ol,
+.wysiwyg-host .toastui-editor-contents ul,
+.wysiwyg-host .toastui-editor-contents div,
+.wysiwyg-host .toastui-editor-contents table td,
+.wysiwyg-host .toastui-editor-contents table td p,
+.wysiwyg-host .toastui-editor-dark .ProseMirror,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h1,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h2,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h3,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h4,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h5,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents h6,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents p,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents li,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents dir,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents menu,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents ol,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents ul,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents div,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents table td,
+.wysiwyg-host .toastui-editor-dark .toastui-editor-contents table td p {
+  color: var(--write-ink);
+}
+.wysiwyg-host .toastui-editor-defaultUI-toolbar {
+  background-color: var(--nav-bg);
+  border-bottom-color: var(--line);
+}
+.wysiwyg-host .toastui-editor-toolbar-divider {
+  background-color: var(--line);
+}
+.wysiwyg-host .toastui-editor-mode-switch {
+  background-color: var(--panel);
+  border-top-color: var(--line);
+}
+.wysiwyg-host .toastui-editor-popup,
+.wysiwyg-host .toastui-editor-context-menu {
+  background: var(--panel);
+  border-color: var(--line);
   color: var(--ink);
 }
 .editor-toolbar-extra { margin-top: 0; }

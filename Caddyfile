@@ -1,0 +1,4 @@
+https://books.localhost:17443 {
+	tls internal
+	reverse_proxy studio:8080
+}

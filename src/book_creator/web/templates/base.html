@@ -12,14 +12,14 @@
           document.documentElement.setAttribute("data-theme", theme);
         }
         var ink = localStorage.getItem("bc.ink");
-        if (ink) document.documentElement.style.setProperty("--ink", ink);
+        if (ink) document.documentElement.style.setProperty("--write-ink", ink);
       } catch (e) {}
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=9">
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -30,12 +30,49 @@
     </div>
     <div class="topbar-end">
       {% block header_extra %}{% endblock %}
-      <a class="settings-link {% block settings_active %}{% endblock %}" href="/settings">Settings</a>
+      <button type="button" class="settings-link" id="open-settings" aria-haspopup="dialog" aria-controls="studio-settings">Settings</button>
     </div>
   </header>
   <main>
     {% block body %}{% endblock %}
   </main>
+
+  <dialog id="studio-settings" class="sheet settings-sheet">
+    <div class="sheet-body">
+      <h2>Settings</h2>
+      <p class="muted">Appearance for this browser only. Does not change book packages.</p>
+      <form id="studio-settings-form" class="settings-fields">
+        <fieldset>
+          <legend>Theme</legend>
+          <div class="theme-toggle" role="radiogroup" aria-label="Theme">
+            <label>
+              <input type="radio" name="theme" value="light" id="theme-light">
+              Light
+            </label>
+            <label>
+              <input type="radio" name="theme" value="dark" id="theme-dark">
+              Dark
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Writing text color</legend>
+          <p class="muted settings-hint">Applies only to the chapter writing area. Chrome keeps the theme default.</p>
+          <div class="settings-color">
+            <label class="sr-only" for="ink-color">Writing text color</label>
+            <input type="color" id="ink-color" name="ink" value="#1a2330">
+            <button type="button" class="button ghost" id="ink-reset">Reset to theme default</button>
+          </div>
+        </fieldset>
+      </form>
+      <div class="row dialog-actions">
+        <button type="button" class="button ghost" data-close-dialog>Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/static/settings.js?v=3"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

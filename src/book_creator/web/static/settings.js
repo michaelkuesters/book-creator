@@ -26,12 +26,20 @@
     } catch (err) {
       /* ignore */
     }
+    document.querySelectorAll(".toastui-editor-defaultUI").forEach(function (el) {
+      el.classList.toggle("toastui-editor-dark", next === "dark");
+    });
+    try {
+      window.dispatchEvent(new CustomEvent("bc:theme", { detail: { theme: next } }));
+    } catch (err) {
+      /* ignore */
+    }
   }
 
   function applyInk(ink, persist) {
     const root = document.documentElement;
     if (ink) {
-      root.style.setProperty("--ink", ink);
+      root.style.setProperty("--write-ink", ink);
       if (persist) {
         try {
           localStorage.setItem(INK_KEY, ink);
@@ -40,7 +48,7 @@
         }
       }
     } else {
-      root.style.removeProperty("--ink");
+      root.style.removeProperty("--write-ink");
       if (persist) {
         try {
           localStorage.removeItem(INK_KEY);
@@ -57,6 +65,35 @@
     } catch (err) {
       return null;
     }
+  }
+
+  function syncToastTheme() {
+    const dark = currentTheme() === "dark";
+    document.querySelectorAll(".toastui-editor-defaultUI").forEach(function (el) {
+      el.classList.toggle("toastui-editor-dark", dark);
+    });
+  }
+
+  function setupSettingsDialog() {
+    const dialog = document.getElementById("studio-settings");
+    const openBtn = document.getElementById("open-settings");
+    if (!dialog) return;
+
+    if (openBtn) {
+      openBtn.addEventListener("click", function () {
+        if (typeof dialog.showModal === "function") dialog.showModal();
+      });
+    }
+
+    dialog.querySelectorAll("[data-close-dialog]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        dialog.close();
+      });
+    });
+
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog) dialog.close();
+    });
   }
 
   function setupSettingsForm() {
@@ -100,5 +137,7 @@
     }
   }
 
+  syncToastTheme();
+  setupSettingsDialog();
   setupSettingsForm();
 })();

@@ -10,7 +10,10 @@ Entry points for agents: root [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUD
 
 - `make build` — build the studio image. Do not hand-edit a repo `dist/` folder.
 - `make test` — run the test suite in that image. A red suite means the change is not done.
-- `make run` — serve the studio on http://127.0.0.1:8080.
+- `make run` — start the studio stack detached; open https://books.localhost:17443 (Caddy on a dedicated loopback port).
+- `make trust` — install Caddy’s local root CA into the OS trust store (once per machine; stack must be running).
+- `make new` — build, test, then run in one go (stops before run if tests fail).
+- `make stop` — stop the studio stack.
 
 Never invent extra Make targets or pipeline steps unless a feature document requires them.
 
@@ -32,6 +35,7 @@ The [feature registry](feature-registry.md) lists every current feature and what
 ## System constraints
 
 - Single-user local studio: no login, bind to localhost.
+- Local operator URL is `https://books.localhost:17443` via Caddy; the only published host port is `127.0.0.1:17443` (not `80`/`443`/`8080`).
 - SQLite plus a Docker volume under `DATA_DIR` (`/data` in the container). Manuscript bytes live on disk so zip import/export stays Leanpub-shaped.
 - Package contract: `metadata.yaml`, `manuscript/Book.txt`, `manuscript/*.md`, optional `manuscript/resources/`, `styles/`, `fonts/`, `scripts/build_book.py`.
 - Default builder produces reading PDF and EPUB. A package override script runs only when the operator explicitly asks.
