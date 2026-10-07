@@ -16,7 +16,7 @@
         {% for edition in editions %}
         {% set ext = edition.name.rsplit('.', 1)[-1].lower() %}
         {% if ext in ['pdf', 'epub'] %}
-        <a href="/books/{{ book.id }}/editions/{{ edition.name }}">{{ ext|upper }} edition</a>
+        <a href="/books/{{ book.id }}/editions/{{ edition.name }}?v={{ edition.mtime }}">{{ ext|upper }} edition</a>
         {% endif %}
         {% endfor %}
       </div>
@@ -51,7 +51,7 @@
       {% set ext = edition.name.rsplit('.', 1)[-1].lower() %}
       {% if ext in ['pdf', 'epub'] %}
       <li>
-        <a class="edition-link" href="/books/{{ book.id }}/editions/{{ edition.name }}">
+        <a class="edition-link" href="/books/{{ book.id }}/editions/{{ edition.name }}?v={{ edition.mtime }}">
           <span class="edition-kind">{{ ext|upper }}</span>
           <span>Download {{ ext|upper }}</span>
         </a>

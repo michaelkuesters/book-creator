@@ -472,3 +472,25 @@ def test_chapter_reorder_rename_remove(data_dir):
     assert removed.json()["ok"] is True
     assert read_book_txt(root) == ["Chapter Ops.md"]
     assert not (root / "manuscript" / "Later thoughts.md").exists()
+
+
+def test_edition_download_avoids_stale_browser_cache(data_dir):
+    book = create_book("Edition Cache")
+    root = book_root(book["id"])
+    dist = root / "dist"
+    dist.mkdir()
+    pdf = dist / "Edition_Cache.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    mtime = int(pdf.stat().st_mtime)
+    client = TestClient(app)
+
+    page = client.get(f"/books/{book['id']}")
+    assert page.status_code == 200
+    assert f"/editions/Edition_Cache.pdf?v={mtime}".encode() in page.content
+
+    downloaded = client.get(f"/books/{book['id']}/editions/Edition_Cache.pdf")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"%PDF-1.4 fake"
+    cache = downloaded.headers.get("cache-control", "").lower()
+    assert "no-store" in cache
+    assert "no-cache" in cache

@@ -515,7 +515,15 @@ def download_edition(book_id: str, name: str):
     path = resolve_inside(book_root(book_id), f"dist/{name}")
     if not path.is_file():
         raise HTTPException(404, "Edition not found")
-    return FileResponse(path, filename=name)
+    # Browsers aggressively disk-cache same-URL PDF attachments; never reuse a prior build.
+    return FileResponse(
+        path,
+        filename=name,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/books/{book_id}/cover")

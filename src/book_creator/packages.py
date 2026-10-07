@@ -720,7 +720,14 @@ def list_editions(root: Path) -> list[dict]:
     editions = []
     for path in sorted(dist.iterdir()):
         if path.is_file() and path.suffix.lower() in {".pdf", ".epub", ".md", ".json"}:
-            editions.append({"name": path.name, "bytes": path.stat().st_size})
+            stat = path.stat()
+            editions.append(
+                {
+                    "name": path.name,
+                    "bytes": stat.st_size,
+                    "mtime": int(stat.st_mtime),
+                }
+            )
     return editions
 
 

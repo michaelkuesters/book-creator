@@ -26,6 +26,8 @@ Scenario: Download editions
   Given dist/*.pdf and dist/*.epub
   When the operator uses Download or Publish
   Then they can fetch PDF and EPUB (and source zips from Download)
+  And edition download responses must not be reused from browser disk cache after a newer build
+    (no-store cache headers; download links include a file-mtime cache buster)
 
 Scenario: Failed build
   Given Book.txt is empty or invalid
@@ -53,6 +55,7 @@ Scenario: Residual raw HTML does not fail the default build
 - Override runs only when `scripts/build_book.py` exists **and** the operator sets `use_override`.
 - Builds are SQLite jobs (`queued` / `running` / `succeeded` / `failed`) with log and error.
 - Pandoc lives in the studio image.
+- Edition file downloads (`/books/<id>/editions/<name>`) send `Cache-Control: no-store` (and related no-cache headers). UI links to those editions include a `v=<mtime>` query so a newer build cannot be shadowed by a prior browser disk cache of the same filename.
 
 ### Must nots
 
@@ -72,6 +75,6 @@ Scenario: Residual raw HTML does not fail the default build
 1. Default build of the tiny fixture writes `Tiny_Test_Book.pdf` and `Tiny_Test_Book.epub` and a page count ≥ 2 when Pandoc is present.
 2. Override job with a stub `scripts/build_book.py` sets `used_override` and writes the script’s `dist/` output.
 3. Invalid empty `Book.txt` raises a builder error.
-4. Publish UI lists PDF and EPUB download links after a successful default build.
+4. Publish UI lists PDF and EPUB download links after a successful default build; those links include a mtime cache buster and the edition response sets no-store cache headers.
 5. Default build of a chapter that still contains an HTML `<br>` (Pandoc `RawInline`) succeeds; the job does not raise `Unsupported inline: RawInline`.
-6. Covered by `tests/test_builder.py`.
+6. Covered by `tests/test_builder.py` and edition download coverage in `tests/test_app.py`.
