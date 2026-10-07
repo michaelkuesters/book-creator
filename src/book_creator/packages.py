@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -18,6 +19,11 @@ COVER_NAMES = ("cover.png", "cover.jpg", "cover.jpeg", "cover.webp")
 PROTECTED = {"manuscript/Book.txt", "metadata.yaml"}
 EDITABLE_SUFFIXES = config.EDITABLE_SUFFIXES
 MAX_ZIP_BYTES = 200 * 1024 * 1024
+HISTORY_DIR = ".history"
+# Refuse saving blank / heading-only text over a chapter that already has real content
+# (guards undo-to-blank + autosave from wiping the manuscript).
+_WIPE_MIN_EXISTING = 80
+_WORD_RE = re.compile(r"\b[\w'-]+\b")
 
 
 class PackageError(ValueError):
@@ -168,6 +174,8 @@ def rename_chapter(root: Path, relative: str, title: str) -> dict:
         order = [new_name if item == old_name else item for item in read_book_txt(root)]
         write_book_txt(root, order)
     new_path = path.relative_to(root).as_posix()
+    if new_path != rel:
+        _move_chapter_history(root, rel, new_path)
     return {"title": cleaned, "name": new_name, "path": new_path}
 
 
@@ -259,7 +267,7 @@ def list_files(root: Path) -> list[dict]:
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        if rel.startswith("dist/"):
+        if rel.startswith("dist/") or rel.startswith(f"{HISTORY_DIR}/"):
             continue
         entries.append(
             {
@@ -269,6 +277,158 @@ def list_files(root: Path) -> list[dict]:
             }
         )
     return entries
+
+
+def _is_manuscript_chapter(rel: str) -> bool:
+    return (
+        rel.startswith("manuscript/")
+        and rel.endswith(".md")
+        and "/resources/" not in rel
+        and not rel.startswith("manuscript/.")
+    )
+
+
+def _would_wipe_chapter(existing: str, incoming: str) -> bool:
+    old = existing.replace("\r\n", "\n").strip()
+    new = incoming.replace("\r\n", "\n").strip()
+    if len(old) < _WIPE_MIN_EXISTING:
+        return False
+    if not new:
+        return True
+    lines = [line.strip() for line in new.splitlines() if line.strip()]
+    # A sole Markdown heading counts as wiped body (common after undo-to-start).
+    return len(lines) == 1 and lines[0].startswith("#")
+
+
+def _history_chapter_dir(root: Path, rel: str) -> Path:
+    """Directory holding timestamped snapshots for one chapter path."""
+    return resolve_inside(root, f"{HISTORY_DIR}/{rel}")
+
+
+def _word_count(text: str) -> int:
+    return len(_WORD_RE.findall(text))
+
+
+def _write_history_snapshot(root: Path, rel: str, content: str) -> str:
+    """Write a timestamped minor-version snapshot; return revision id (filename)."""
+    hist_dir = _history_chapter_dir(root, rel)
+    hist_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    revision = f"{stamp}.md"
+    target = hist_dir / revision
+    suffix = 1
+    while target.exists():
+        revision = f"{stamp}-{suffix}.md"
+        target = hist_dir / revision
+        suffix += 1
+    target.write_text(content.replace("\r\n", "\n"), encoding="utf-8")
+    return revision
+
+
+def _revision_saved_at(stem: str) -> str:
+    base = stem
+    if "-" in stem:
+        head, tail = stem.rsplit("-", 1)
+        if tail.isdigit():
+            base = head
+    if len(base) == 16 and base[8] == "T" and base.endswith("Z"):
+        return (
+            f"{base[0:4]}-{base[4:6]}-{base[6:8]}T"
+            f"{base[9:11]}:{base[11:13]}:{base[13:15]}Z"
+        )
+    return stem
+
+
+def _revision_sort_key(name: str) -> tuple[str, int]:
+    stem = Path(name).stem
+    base = stem
+    seq = 0
+    if "-" in stem:
+        head, tail = stem.rsplit("-", 1)
+        if tail.isdigit():
+            base = head
+            seq = int(tail)
+    return (base, seq)
+
+
+def _revision_meta(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    return {
+        "id": path.name,
+        "saved_at": _revision_saved_at(path.stem),
+        "word_count": _word_count(text),
+    }
+
+
+def checkpoint_chapter_history(root: Path, relative: str) -> dict | None:
+    """Create a leave-time minor version when content differs from the newest version."""
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have history")
+    path = resolve_inside(root, rel)
+    if not path.is_file():
+        raise PackageError("File not found")
+    normalized = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    hist_dir = root / HISTORY_DIR / rel
+    if hist_dir.is_dir():
+        versions = sorted(
+            hist_dir.glob("*.md"), key=lambda p: _revision_sort_key(p.name), reverse=True
+        )
+        if versions and versions[0].read_text(encoding="utf-8") == normalized:
+            return None
+    revision_id = _write_history_snapshot(root, rel, normalized)
+    return {
+        "id": revision_id,
+        "saved_at": _revision_saved_at(Path(revision_id).stem),
+        "word_count": _word_count(normalized),
+    }
+
+
+def list_chapter_history(root: Path, relative: str) -> list[dict]:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have history")
+    hist_dir = root / HISTORY_DIR / rel
+    if not hist_dir.is_dir():
+        return []
+    paths = sorted(hist_dir.glob("*.md"), key=lambda p: _revision_sort_key(p.name), reverse=True)
+    return [_revision_meta(path) for path in paths]
+
+
+def read_chapter_history(root: Path, relative: str, revision_id: str) -> str:
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not _is_manuscript_chapter(rel):
+        raise PackageError("Only manuscript chapters have history")
+    if "/" in revision_id or "\\" in revision_id or revision_id in {".", ".."}:
+        raise PackageError("Invalid revision")
+    path = resolve_inside(root, f"{HISTORY_DIR}/{rel}/{revision_id}")
+    if not path.is_file():
+        raise PackageError("Revision not found")
+    return path.read_text(encoding="utf-8")
+
+
+def restore_chapter_history(root: Path, relative: str, revision_id: str) -> str:
+    content = read_chapter_history(root, relative, revision_id)
+    checkpoint_chapter_history(root, relative)
+    write_text_file(root, relative, content)
+    return content
+
+
+def _move_chapter_history(root: Path, old_rel: str, new_rel: str) -> None:
+    old_dir = root / HISTORY_DIR / old_rel
+    if not old_dir.is_dir() or old_rel == new_rel:
+        return
+    new_dir = root / HISTORY_DIR / new_rel
+    new_dir.parent.mkdir(parents=True, exist_ok=True)
+    if new_dir.exists():
+        for item in old_dir.glob("*.md"):
+            dest = new_dir / item.name
+            if dest.exists():
+                dest = new_dir / f"{item.stem}-moved{item.suffix}"
+            item.rename(dest)
+        shutil.rmtree(old_dir, ignore_errors=True)
+    else:
+        old_dir.rename(new_dir)
 
 
 def _kind(rel: str, path: Path) -> str:
@@ -337,8 +497,16 @@ def write_text_file(root: Path, relative: str, content: str, add_to_book: bool =
     if path.suffix.lower() not in EDITABLE_SUFFIXES:
         raise PackageError("Not a text file")
     path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = content.replace("\r\n", "\n")
     created = not path.exists()
-    path.write_text(content.replace("\r\n", "\n"), encoding="utf-8")
+    if not created and path.is_file():
+        existing = path.read_text(encoding="utf-8")
+        rel_existing = path.relative_to(root).as_posix()
+        if _is_manuscript_chapter(rel_existing) and _would_wipe_chapter(existing, normalized):
+            raise PackageError(
+                "Refusing to replace chapter content with empty or near-empty text"
+            )
+    path.write_text(normalized, encoding="utf-8")
     rel = path.relative_to(root).as_posix()
     if add_to_book or (created and rel.startswith("manuscript/") and path.suffix.lower() == ".md"):
         name = path.name
@@ -375,6 +543,8 @@ def zip_package(root: Path, include_dist: bool = False) -> bytes:
             if not path.is_file():
                 continue
             rel = path.relative_to(root).as_posix()
+            if rel.startswith(f"{HISTORY_DIR}/"):
+                continue
             if not include_dist and rel.startswith("dist/"):
                 continue
             archive.write(path, rel)

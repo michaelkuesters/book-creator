@@ -17,11 +17,17 @@ def test_settings_sheet(data_dir):
     assert b'id="ink-color"' in home.content
     assert b'type="color"' in home.content
     assert b"Writing text color" in home.content
+    assert b'rel="icon"' in home.content
+    assert b"/static/favicon.svg" in home.content
+    favicon = client.get("/static/favicon.svg")
+    assert favicon.status_code == 200
+    assert b"<svg" in favicon.content
     book = create_book("Settings Book")
     page = client.get(f"/books/{book['id']}")
     assert page.status_code == 200
     assert b'id="studio-settings"' in page.content
     assert b'id="open-settings"' in page.content
+    assert b"/static/favicon.svg" in page.content
     redirected = client.get("/settings", follow_redirects=False)
     assert redirected.status_code == 303
     assert redirected.headers["location"] == "/"
@@ -43,6 +49,9 @@ def test_settings_sheet(data_dir):
     assert b"unsavedDiffPlugin" in studio_js.content
     assert b"bc-unsaved-add" in studio_js.content
     assert b"bc-unsaved-del" in studio_js.content
+    assert b"baseline: null" in studio_js.content
+    assert b"settleUnsavedBaseline" in studio_js.content
+    assert b"!dirty" in studio_js.content
 
 
 def test_home_and_book_pages(data_dir):
@@ -87,6 +96,114 @@ def test_autosave_returns_json(data_dir):
     )
     assert response.status_code == 200
     assert response.json()["ok"] is True
+
+
+def test_chapter_history_list_and_restore(data_dir):
+    book = create_book("History Book")
+    client = TestClient(app)
+    path = "manuscript/History Book.md"
+    first = "# History\n\nFirst saved body with enough characters.\n"
+    second = "# History\n\nSecond saved body with enough characters.\n"
+    idle = client.post(
+        f"/books/{book['id']}/files",
+        data={"path": path, "content": first},
+        params={"autosave": "true"},
+        headers={"Accept": "application/json"},
+    )
+    assert idle.status_code == 200
+    assert idle.json().get("revision") is None
+    empty = client.get(
+        f"/books/{book['id']}/files/history",
+        params={"path": path},
+        headers={"Accept": "application/json"},
+    )
+    assert empty.status_code == 200
+    assert empty.json()["revisions"] == []
+    leave = client.post(
+        f"/books/{book['id']}/files",
+        data={"path": path, "content": first},
+        params={"autosave": "true", "checkpoint": "true"},
+        headers={"Accept": "application/json"},
+    )
+    assert leave.status_code == 200
+    assert leave.json()["revision"] is not None
+    assert leave.json()["revision"]["word_count"] > 0
+    assert (
+        client.post(
+            f"/books/{book['id']}/files",
+            data={"path": path, "content": second},
+            params={"autosave": "true", "checkpoint": "true"},
+            headers={"Accept": "application/json"},
+        ).status_code
+        == 200
+    )
+    listed = client.get(
+        f"/books/{book['id']}/files/history",
+        params={"path": path},
+        headers={"Accept": "application/json"},
+    )
+    assert listed.status_code == 200
+    revisions = listed.json()["revisions"]
+    assert len(revisions) == 2
+    assert "saved_at" in revisions[0]
+    assert "word_count" in revisions[0]
+    target = next(
+        rev
+        for rev in revisions
+        if client.get(
+            f"/books/{book['id']}/files/history/revision",
+            params={"path": path, "id": rev["id"]},
+            headers={"Accept": "application/json"},
+        ).json()["content"]
+        == first
+    )
+    preview = client.get(
+        f"/books/{book['id']}/files/history/revision",
+        params={"path": path, "id": target["id"]},
+        headers={"Accept": "application/json"},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["content"] == first
+    # Opening a revision is read-only over HTTP; Latest on disk must stay intact.
+    assert read_text_file(book_root(book["id"]), path) == second
+    page = client.get(f"/books/{book['id']}?file={path}")
+    assert page.status_code == 200
+    assert b"chapter-history-btn" in page.content
+    assert b"version-promote-dialog" in page.content
+    assert b"version-proceed" in page.content
+    assert b"version-open-readonly" in page.content
+    assert b"Back to Latest" in page.content
+    studio_js = client.get("/static/studio.js")
+    assert b"insertMarkdownParsed" in studio_js.content
+    assert b"hideModeSwitch: false" in studio_js.content
+    assert b"sessionNeedsCheckpoint" in studio_js.content
+    assert b"files/history/checkpoint" in studio_js.content
+    assert b"openHistoricVersion" in studio_js.content
+    assert b"offerVersionPromote" in studio_js.content
+    assert b"Open Read-Only" in page.content
+
+
+def test_autosave_refuses_empty_wipe(data_dir):
+    book = create_book("Wipe Guard")
+    client = TestClient(app)
+    path = "manuscript/Wipe Guard.md"
+    body = "# Wipe Guard\n\n" + ("Substantial chapter text. " * 20) + "\n"
+    seeded = client.post(
+        f"/books/{book['id']}/files",
+        data={"path": path, "content": body},
+        params={"autosave": "true"},
+        headers={"Accept": "application/json"},
+    )
+    assert seeded.status_code == 200
+    wiped = client.post(
+        f"/books/{book['id']}/files",
+        data={"path": path, "content": ""},
+        params={"autosave": "true"},
+        headers={"Accept": "application/json"},
+    )
+    assert wiped.status_code == 400
+    assert "Refusing to replace chapter content" in wiped.json()["detail"]
+    assert read_text_file(book_root(book["id"]), path) == body
 
 
 def test_asset_upload_json_and_serve(data_dir):

@@ -5,8 +5,16 @@
   let dirty = false;
   let saving = false;
   let timer = null;
-  let markBaseline = function () {};
+  let sessionNeedsCheckpoint = false;
+  let markBaseline = function () {
+    return false;
+  };
+  let refreshUnsavedDecorations = function () {};
   let ignoringBaselineTr = false;
+  let editorReady = false;
+  /** null | { id, content, label, mode: 'browsing'|'readonly', latestMarkdown } */
+  let versionView = null;
+  let promoteDialogOpen = false;
 
   function setSaveStatus(text, state) {
     const el = document.getElementById("save-status");
@@ -54,42 +62,221 @@
   }
 
   function setDirty(next) {
+    var prev = dirty;
     dirty = next;
-    if (!dirty) markBaseline();
+    if (dirty) sessionNeedsCheckpoint = true;
+    if (!dirty) {
+      markBaseline();
+    } else if (!prev) {
+      // Decorations read `dirty`; force a redraw after the flag flips.
+      refreshUnsavedDecorations();
+    }
   }
 
   function scheduleSave() {
+    if (versionView && versionView.mode === "readonly") return;
+    if (versionView && versionView.mode === "browsing") {
+      offerVersionPromote();
+      return;
+    }
     setDirty(true);
     setSaveStatus("Unsaved changes — autosaves after 10s idle", "dirty");
     clearTimeout(timer);
     timer = setTimeout(saveNow, IDLE_MS);
   }
 
-  /** Index document text the same way as textBetween(..., "\\n", "\\n"). */
+  function formatWhen(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString();
+    } catch (err) {
+      return iso;
+    }
+  }
+
+  function setEditorReadOnly(on) {
+    var host = document.getElementById("wysiwyg-editor");
+    if (host) host.classList.toggle("is-readonly", !!on);
+    if (!editor) return;
+    try {
+      var ww = host && host.querySelector(".toastui-editor-ww-container .toastui-editor-contents");
+      if (ww) ww.setAttribute("contenteditable", on ? "false" : "true");
+      var md = host && host.querySelector(".toastui-editor-md-container .toastui-editor-md-source");
+      if (md) {
+        md.readOnly = !!on;
+        md.setAttribute("contenteditable", on ? "false" : "true");
+      }
+      if (on) editor.blur();
+    } catch (err) {
+      /* editor chrome may not be ready */
+    }
+  }
+
+  function updateVersionBanner() {
+    var banner = document.getElementById("version-banner");
+    var text = document.getElementById("version-banner-text");
+    if (!banner || !text) return;
+    if (!versionView) {
+      banner.hidden = true;
+      text.textContent = "";
+      return;
+    }
+    banner.hidden = false;
+    var when = versionView.label || "older version";
+    if (versionView.mode === "readonly") {
+      text.textContent = "Viewing " + when + " (read-only). Latest on disk is unchanged.";
+    } else {
+      text.textContent = "Viewing " + when + ". Latest on disk is unchanged until you Proceed.";
+    }
+  }
+
+  function offerVersionPromote() {
+    if (!versionView || versionView.mode !== "browsing" || promoteDialogOpen) return;
+    var dialog = document.getElementById("version-promote-dialog");
+    if (!dialog || typeof dialog.showModal !== "function") return;
+    promoteDialogOpen = true;
+    dialog.showModal();
+  }
+
+  function applyHistoricMarkdown(markdown, ready) {
+    if (!editor) return;
+    ignoringBaselineTr = true;
+    editorReady = false;
+    editor.setMarkdown(toPreviewMarkdown(markdown));
+    syncTextarea();
+    window.setTimeout(function () {
+      markBaseline();
+      editorReady = !!ready;
+      ignoringBaselineTr = false;
+      refreshUnsavedDecorations();
+    }, 0);
+  }
+
+  async function openHistoricVersion(rev, content) {
+    if (!editor) return;
+    if (dirty) {
+      var saved = await saveNow();
+      if (!saved && dirty) {
+        setSaveStatus("Save current chapter before opening a version", "error");
+        return;
+      }
+    }
+    var latestMarkdown = currentMarkdown();
+    versionView = {
+      id: rev.id,
+      content: content,
+      label: formatWhen(rev.saved_at),
+      mode: "browsing",
+      latestMarkdown: latestMarkdown,
+    };
+    setEditorReadOnly(false);
+    clearTimeout(timer);
+    setDirty(false);
+    sessionNeedsCheckpoint = false;
+    applyHistoricMarkdown(content, true);
+    updateVersionBanner();
+    setSaveStatus("Viewing older version", "saved");
+  }
+
+  function returnToLatest() {
+    if (!versionView) return;
+    var latest = versionView.latestMarkdown;
+    versionView = null;
+    promoteDialogOpen = false;
+    setEditorReadOnly(false);
+    clearTimeout(timer);
+    setDirty(false);
+    sessionNeedsCheckpoint = false;
+    applyHistoricMarkdown(latest, true);
+    updateVersionBanner();
+    setSaveStatus("Back to Latest", "saved");
+  }
+
+  async function proceedWithHistoricAsLatest() {
+    if (!versionView) return;
+    promoteDialogOpen = false;
+    versionView = null;
+    var dialog = document.getElementById("version-promote-dialog");
+    if (dialog) dialog.close();
+    setEditorReadOnly(false);
+    updateVersionBanner();
+    // Checkpoint on-disk Latest, then persist the editor (historic + any typed change).
+    await checkpointVersionForced();
+    setDirty(true);
+    sessionNeedsCheckpoint = true;
+    setSaveStatus("Unsaved changes — autosaves after 10s idle", "dirty");
+    clearTimeout(timer);
+    timer = setTimeout(saveNow, IDLE_MS);
+  }
+
+  function openHistoricReadOnly() {
+    if (!versionView) return;
+    promoteDialogOpen = false;
+    versionView.mode = "readonly";
+    var dialog = document.getElementById("version-promote-dialog");
+    if (dialog) dialog.close();
+    clearTimeout(timer);
+    setDirty(false);
+    sessionNeedsCheckpoint = false;
+    applyHistoricMarkdown(versionView.content, true);
+    setEditorReadOnly(true);
+    updateVersionBanner();
+    setSaveStatus("Read-only older version", "saved");
+  }
+
+  async function checkpointVersionForced() {
+    const form = document.getElementById("editor-form");
+    var path = chapterFormPath(form);
+    if (!form || !path) return false;
+    var body = new FormData();
+    body.append("path", path);
+    try {
+      var response = await fetch("/books/" + bookId() + "/files/history/checkpoint", {
+        method: "POST",
+        body: body,
+        headers: { Accept: "application/json" },
+      });
+      return response.ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Index WW doc text to match ProseMirror textBetween(..., "\\n", "\\n"),
+   * with a parallel map from each character to a doc position.
+   */
   function indexDocText(doc) {
+    var blockSeparator = "\n";
+    var leafText = "\n";
     var text = "";
     var posAt = [];
     var first = true;
     doc.nodesBetween(0, doc.content.size, function (node, pos) {
-      var leaf = "";
+      var nodeText = "";
       if (node.isText) {
-        leaf = node.text;
+        nodeText = node.text;
       } else if (node.isLeaf) {
-        leaf = "\n";
+        nodeText = leafText;
       }
-      if (node.isBlock && (node.isTextblock || node.isLeaf) && !first) {
-        posAt.push(pos);
-        text += "\n";
-      }
-      if (node.isBlock && (node.isTextblock || node.isLeaf)) first = false;
-      if (node.isText) {
-        for (var i = 0; i < node.text.length; i++) {
-          posAt.push(pos + i);
-          text += node.text.charAt(i);
+      if (node.isBlock && ((node.isLeaf && nodeText) || node.isTextblock) && blockSeparator) {
+        if (first) first = false;
+        else {
+          posAt.push(pos);
+          text += blockSeparator;
         }
-      } else if (node.isLeaf && leaf) {
-        posAt.push(pos);
-        text += leaf;
+      }
+      if (node.isText) {
+        for (var i = 0; i < nodeText.length; i++) {
+          posAt.push(pos + i);
+          text += nodeText.charAt(i);
+        }
+      } else if (node.isLeaf && nodeText) {
+        for (var j = 0; j < nodeText.length; j++) {
+          posAt.push(pos);
+          text += nodeText.charAt(j);
+        }
       }
     });
     return { text: text, posAt: posAt };
@@ -198,40 +385,46 @@
   }
 
   function decorationsForDiff(doc, baseline, Decoration, DecorationSet) {
-    var indexed = indexDocText(doc);
-    if (indexed.text === baseline) return DecorationSet.empty;
-    var diffs = diffChars(baseline, indexed.text);
-    var decos = [];
-    var newOffset = 0;
-    var delKey = 0;
-    for (var i = 0; i < diffs.length; i++) {
-      var op = diffs[i][0];
-      var chunk = diffs[i][1];
-      if (op === 0) {
-        newOffset += chunk.length;
-      } else if (op === 1) {
-        pushInlineRuns(decos, Decoration, indexed.posAt, newOffset, newOffset + chunk.length);
-        newOffset += chunk.length;
-      } else {
-        (function (text, at) {
-          var key = "bc-del-" + delKey++;
-          decos.push(
-            Decoration.widget(
-              at,
-              function () {
-                var span = document.createElement("span");
-                span.className = "bc-unsaved-del";
-                span.textContent = text;
-                span.setAttribute("contenteditable", "false");
-                return span;
-              },
-              { side: -1, key: key }
-            )
-          );
-        })(chunk, gapPos(indexed.posAt, newOffset, doc));
+    try {
+      var indexed = indexDocText(doc);
+      if (indexed.text === baseline) return DecorationSet.empty;
+      var diffs = diffChars(baseline, indexed.text);
+      var decos = [];
+      var newOffset = 0;
+      var delKey = 0;
+      var maxPos = doc.content.size;
+      for (var i = 0; i < diffs.length; i++) {
+        var op = diffs[i][0];
+        var chunk = diffs[i][1];
+        if (op === 0) {
+          newOffset += chunk.length;
+        } else if (op === 1) {
+          pushInlineRuns(decos, Decoration, indexed.posAt, newOffset, newOffset + chunk.length);
+          newOffset += chunk.length;
+        } else {
+          (function (text, at) {
+            var pos = Math.max(1, Math.min(at, maxPos));
+            var key = "bc-del-" + delKey++;
+            decos.push(
+              Decoration.widget(
+                pos,
+                function () {
+                  var span = document.createElement("span");
+                  span.className = "bc-unsaved-del";
+                  span.textContent = text;
+                  span.setAttribute("contenteditable", "false");
+                  return span;
+                },
+                { side: -1, key: key }
+              )
+            );
+          })(chunk, gapPos(indexed.posAt, newOffset, doc));
+        }
       }
+      return DecorationSet.create(doc, decos);
+    } catch (err) {
+      return DecorationSet.empty;
     }
-    return DecorationSet.create(doc, decos);
   }
 
   function unsavedDiffPlugin(context) {
@@ -242,10 +435,9 @@
     var key = new PluginKey("bcUnsavedDiff");
     var viewRef = null;
 
-    markBaseline = function () {
-      if (!viewRef) return;
-      var text = indexDocText(viewRef.state.doc).text;
-      var tr = viewRef.state.tr.setMeta(UNSAVED_META, { baseline: text });
+    function dispatchMeta(meta) {
+      if (!viewRef) return false;
+      var tr = viewRef.state.tr.setMeta(UNSAVED_META, meta);
       tr.setMeta("addToHistory", false);
       ignoringBaselineTr = true;
       try {
@@ -253,6 +445,17 @@
       } finally {
         ignoringBaselineTr = false;
       }
+      return true;
+    }
+
+    markBaseline = function () {
+      if (!viewRef) return false;
+      var text = indexDocText(viewRef.state.doc).text;
+      return dispatchMeta({ baseline: text });
+    };
+
+    refreshUnsavedDecorations = function () {
+      dispatchMeta({ refresh: true });
     };
 
     return {
@@ -261,22 +464,30 @@
           return new Plugin({
             key: key,
             state: {
-              init: function (_config, state) {
-                return { baseline: indexDocText(state.doc).text };
+              // null until settle finishes — init often runs on an empty doc
+              // before Toast applies initialValue, which would mark everything new.
+              init: function () {
+                return { baseline: null, tick: 0 };
               },
-              apply: function (tr, value, _old, state) {
+              apply: function (tr, value) {
                 var meta = tr.getMeta(UNSAVED_META);
-                if (meta && typeof meta.baseline === "string") {
-                  return { baseline: meta.baseline };
-                }
-                if (!tr.docChanged) return value;
-                return value;
+                if (!meta) return value;
+                var next = {
+                  baseline: value.baseline,
+                  tick: value.tick || 0,
+                };
+                if (typeof meta.baseline === "string") next.baseline = meta.baseline;
+                if (meta.refresh) next.tick = next.tick + 1;
+                return next;
               },
             },
             props: {
               decorations: function (state) {
                 var pluginState = key.getState(state);
-                if (!pluginState) return null;
+                // Delta is vs last save/load snapshot; never paint before an edit.
+                if (!dirty || !pluginState || pluginState.baseline === null) {
+                  return DecorationSet.empty;
+                }
                 return decorationsForDiff(
                   state.doc,
                   pluginState.baseline,
@@ -299,11 +510,18 @@
     };
   }
 
-  function autosaveUrl(form) {
-    return form.action + (form.action.includes("?") ? "&" : "?") + "autosave=1";
+  function autosaveUrl(form, checkpoint) {
+    var url = form.action + (form.action.includes("?") ? "&" : "?") + "autosave=1";
+    if (checkpoint) url += "&checkpoint=1";
+    return url;
   }
 
-  async function saveNow(force) {
+  function chapterFormPath(form) {
+    var input = form && form.querySelector('input[name="path"]');
+    return input ? input.value : "";
+  }
+
+  async function saveNow(force, checkpoint) {
     const form = document.getElementById("editor-form");
     if (!form || (!dirty && !force) || saving) return false;
     saving = true;
@@ -311,12 +529,27 @@
     syncTextarea();
     try {
       const body = new FormData(form);
-      const response = await fetch(autosaveUrl(form), {
+      const response = await fetch(autosaveUrl(form, checkpoint), {
         method: "POST",
         body,
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) throw new Error("save failed");
+      if (!response.ok) {
+        var detail = "";
+        try {
+          var payload = await response.json();
+          detail = payload && payload.detail ? String(payload.detail) : "";
+        } catch (parseErr) {
+          detail = "";
+        }
+        if (detail.indexOf("Refusing to replace chapter content") === 0) {
+          setSaveStatus("Save blocked to protect chapter — reloading…", "error");
+          window.location.reload();
+          return false;
+        }
+        throw new Error("save failed");
+      }
+      if (checkpoint) sessionNeedsCheckpoint = false;
       setDirty(false);
       setSaveStatus("Saved", "saved");
       return true;
@@ -328,23 +561,66 @@
     }
   }
 
+  async function checkpointVersion() {
+    if (!sessionNeedsCheckpoint) return false;
+    const form = document.getElementById("editor-form");
+    var path = chapterFormPath(form);
+    if (!form || !path) return false;
+    var body = new FormData();
+    body.append("path", path);
+    try {
+      var response = await fetch("/books/" + bookId() + "/files/history/checkpoint", {
+        method: "POST",
+        body: body,
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error("checkpoint failed");
+      sessionNeedsCheckpoint = false;
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   function saveOnUnload() {
     const form = document.getElementById("editor-form");
-    if (!form || !dirty) return;
+    if (!form) return;
+    // Historic view must never overwrite Latest on unload.
+    if (versionView) return;
     clearTimeout(timer);
-    syncTextarea();
-    const body = new FormData(form);
+    if (dirty) {
+      syncTextarea();
+      const body = new FormData(form);
+      try {
+        fetch(autosaveUrl(form, true), {
+          method: "POST",
+          body,
+          headers: { Accept: "application/json" },
+          keepalive: true,
+        });
+      } catch (err) {
+        /* best-effort on unload */
+      }
+      sessionNeedsCheckpoint = false;
+      setDirty(false);
+      return;
+    }
+    if (!sessionNeedsCheckpoint) return;
+    var path = chapterFormPath(form);
+    if (!path) return;
+    var body = new FormData();
+    body.append("path", path);
     try {
-      fetch(autosaveUrl(form), {
+      fetch("/books/" + bookId() + "/files/history/checkpoint", {
         method: "POST",
-        body,
+        body: body,
         headers: { Accept: "application/json" },
         keepalive: true,
       });
     } catch (err) {
       /* best-effort on unload */
     }
-    setDirty(false);
+    sessionNeedsCheckpoint = false;
   }
 
   function isEditorLeaveLink(anchor) {
@@ -366,11 +642,19 @@
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = event.target.closest && event.target.closest("a[href]");
       if (!isEditorLeaveLink(anchor)) return;
-      if (!dirty) return;
+      if (versionView) {
+        event.preventDefault();
+        window.location.assign(anchor.href);
+        return;
+      }
+      if (!dirty && !sessionNeedsCheckpoint) return;
       event.preventDefault();
       const href = anchor.href;
       clearTimeout(timer);
-      saveNow().finally(function () {
+      var leave = dirty
+        ? saveNow(false, true)
+        : checkpointVersion();
+      Promise.resolve(leave).finally(function () {
         window.location.assign(href);
       });
     });
@@ -387,16 +671,83 @@
     const initial = toPreviewMarkdown(textarea.value || "");
     const theme =
       document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    function savedSourceHasText() {
+      return String(textarea.value || "").replace(/\s/g, "").length > 0;
+    }
+
+    function liveDocHasText() {
+      if (!editor) return false;
+      try {
+        return String(editor.getMarkdown() || "").replace(/\s/g, "").length > 0;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    /**
+     * Snapshot the WW doc only after Toast finishes applying initialValue and the
+     * plain text stays stable. Until then, keep refreshing the baseline and do
+     * not treat load churn as unsaved edits.
+     */
+    function settleUnsavedBaseline(attempt, lastText, stableCount) {
+      if (editorReady) return;
+      var n = attempt || 0;
+      var prev = typeof lastText === "string" ? lastText : null;
+      var stable = stableCount || 0;
+
+      if (savedSourceHasText() && !liveDocHasText()) {
+        window.setTimeout(function () {
+          settleUnsavedBaseline(n + 1, prev, 0);
+        }, 25);
+        return;
+      }
+      if (!markBaseline()) {
+        if (n < 60) {
+          window.setTimeout(function () {
+            settleUnsavedBaseline(n + 1, prev, 0);
+          }, 25);
+        }
+        return;
+      }
+
+      var live = "";
+      try {
+        live = editor.getMarkdown() || "";
+      } catch (err) {
+        live = "";
+      }
+      if (live === prev) stable += 1;
+      else {
+        stable = 0;
+        prev = live;
+      }
+
+      if (stable >= 3 || n >= 60) {
+        markBaseline();
+        editorReady = true;
+        return;
+      }
+      window.setTimeout(function () {
+        settleUnsavedBaseline(n + 1, prev, stable);
+      }, 50);
+    }
+
     editor = new toastui.Editor({
       el: host,
       height: "calc(100vh - 15rem)",
       initialEditType: "wysiwyg",
       previewStyle: "vertical",
-      hideModeSwitch: true,
+      hideModeSwitch: false,
       usageStatistics: false,
       theme: theme,
       initialValue: initial,
       plugins: [unsavedDiffPlugin],
+      events: {
+        load: function () {
+          settleUnsavedBaseline(0, null, 0);
+          setupMarkdownPaste(host);
+        },
+      },
       toolbarItems: [
         ["heading", "bold", "italic", "strike"],
         ["hr", "quote"],
@@ -417,6 +768,13 @@
       },
     });
 
+    editor.on("load", function () {
+      settleUnsavedBaseline(0, null, 0);
+      setupMarkdownPaste(host);
+    });
+    settleUnsavedBaseline(0, null, 0);
+    setupMarkdownPaste(host);
+
     window.addEventListener("bc:theme", function (event) {
       const next = event && event.detail && event.detail.theme === "dark" ? "dark" : "light";
       const root = host.querySelector(".toastui-editor-defaultUI");
@@ -425,6 +783,10 @@
 
     editor.on("change", function () {
       if (ignoringBaselineTr) return;
+      if (!editorReady) {
+        markBaseline();
+        return;
+      }
       scheduleSave();
     });
 
@@ -434,16 +796,167 @@
       setDirty(false);
     });
 
-    const saveBtn = document.getElementById("save-now-btn");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", function () {
-        clearTimeout(timer);
-        setDirty(true);
-        saveNow();
+    setupLeaveSave();
+    setupChapterHistory();
+  }
+
+  function looksLikeMarkdown(text) {
+    if (!text || !String(text).trim()) return false;
+    return /(?:^|\n)\s{0,3}#{1,6}\s|(?:^|\n)\s*[-*+]\s|(?:^|\n)\s*\d+\.\s|\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|```|\[.+\]\(.+\)|(?:^|\n)\s*>\s/m.test(
+      text
+    );
+  }
+
+  function insertMarkdownParsed(md) {
+    if (!editor) return;
+    if (versionView && versionView.mode === "readonly") return;
+    var wasWW = editor.isWysiwygMode && editor.isWysiwygMode();
+    if (wasWW) editor.changeMode("markdown", true);
+    editor.replaceSelection(md);
+    if (wasWW) editor.changeMode("wysiwyg", true);
+    scheduleSave();
+  }
+
+  function setupMarkdownPaste(host) {
+    if (!host || host.dataset.mdPaste === "1") return;
+    var ww = host.querySelector(".toastui-editor-ww-container .toastui-editor-contents");
+    if (!ww) return;
+    host.dataset.mdPaste = "1";
+    ww.addEventListener(
+      "paste",
+      function (event) {
+        if (!editor || !(editor.isWysiwygMode && editor.isWysiwygMode())) return;
+        var clip = event.clipboardData;
+        if (!clip) return;
+        var text = clip.getData("text/plain") || "";
+        if (!looksLikeMarkdown(text)) return;
+        var html = clip.getData("text/html") || "";
+        if (/xmlns:o=|mso-|WordDocument/i.test(html)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        insertMarkdownParsed(text);
+      },
+      true
+    );
+  }
+
+  function setupChapterHistory() {
+    var openBtn = document.getElementById("chapter-history-btn");
+    var dialog = document.getElementById("chapter-history-dialog");
+    var list = document.getElementById("chapter-history-list");
+    var empty = document.getElementById("chapter-history-empty");
+    var form = document.getElementById("editor-form");
+    var promoteDialog = document.getElementById("version-promote-dialog");
+    var proceedBtn = document.getElementById("version-proceed");
+    var readonlyBtn = document.getElementById("version-open-readonly");
+    var backBtn = document.getElementById("version-back-latest");
+    if (!openBtn || !dialog || !list || !form) return;
+
+    function chapterPath() {
+      var input = form.querySelector('input[name="path"]');
+      return input ? input.value : "";
+    }
+
+    async function loadHistory() {
+      list.innerHTML = "";
+      empty.hidden = true;
+      var path = chapterPath();
+      if (!path) return;
+      var response = await fetch(
+        "/books/" + bookId() + "/files/history?path=" + encodeURIComponent(path),
+        { headers: { Accept: "application/json" } }
+      );
+      if (!response.ok) throw new Error("history failed");
+      var data = await response.json();
+      var revisions = data.revisions || [];
+      if (!revisions.length) {
+        empty.hidden = false;
+        return;
+      }
+      revisions.forEach(function (rev) {
+        var li = document.createElement("li");
+        li.className = "history-item";
+        var meta = document.createElement("div");
+        meta.className = "history-meta";
+        var words =
+          typeof rev.word_count === "number" ? rev.word_count : 0;
+        meta.innerHTML =
+          "<strong>" +
+          formatWhen(rev.saved_at) +
+          "</strong><span class=\"muted\">" +
+          words +
+          (words === 1 ? " word" : " words") +
+          "</span>";
+        var open = document.createElement("button");
+        open.type = "button";
+        open.className = "button ghost";
+        open.textContent = "Open";
+        open.addEventListener("click", async function () {
+          open.disabled = true;
+          try {
+            var res = await fetch(
+              "/books/" +
+                bookId() +
+                "/files/history/revision?path=" +
+                encodeURIComponent(path) +
+                "&id=" +
+                encodeURIComponent(rev.id),
+              { headers: { Accept: "application/json" } }
+            );
+            if (!res.ok) throw new Error("revision failed");
+            var payload = await res.json();
+            if (typeof payload.content !== "string") throw new Error("revision failed");
+            await openHistoricVersion(rev, payload.content);
+            dialog.close();
+          } catch (err) {
+            setSaveStatus("Could not open version", "error");
+            open.disabled = false;
+          }
+        });
+        li.appendChild(meta);
+        li.appendChild(open);
+        list.appendChild(li);
       });
     }
 
-    setupLeaveSave();
+    openBtn.addEventListener("click", async function () {
+      try {
+        await loadHistory();
+        if (typeof dialog.showModal === "function") dialog.showModal();
+      } catch (err) {
+        setSaveStatus("Could not load history", "error");
+      }
+    });
+
+    if (proceedBtn) {
+      proceedBtn.addEventListener("click", function () {
+        proceedWithHistoricAsLatest();
+      });
+    }
+    if (readonlyBtn) {
+      readonlyBtn.addEventListener("click", function () {
+        openHistoricReadOnly();
+      });
+    }
+    if (backBtn) {
+      backBtn.addEventListener("click", function () {
+        returnToLatest();
+      });
+    }
+    if (promoteDialog) {
+      promoteDialog.addEventListener("close", function () {
+        if (!versionView || versionView.mode !== "browsing") {
+          promoteDialogOpen = false;
+          return;
+        }
+        if (!promoteDialogOpen) return;
+        promoteDialogOpen = false;
+        applyHistoricMarkdown(versionView.content, true);
+        setDirty(false);
+        sessionNeedsCheckpoint = false;
+        setSaveStatus("Viewing older version", "saved");
+      });
+    }
   }
 
   async function uploadAsset(file, filename) {
@@ -479,11 +992,13 @@
     if (!openBtn || !dialog) return;
 
     openBtn.addEventListener("click", function () {
+      if (versionView && versionView.mode === "readonly") return;
       if (typeof dialog.showModal === "function") dialog.showModal();
     });
 
     dialog.querySelectorAll(".asset-pick").forEach(function (button) {
       button.addEventListener("click", function () {
+        if (versionView && versionView.mode === "readonly") return;
         insertIllustration(button.dataset.markdown, button.dataset.url, button.dataset.name);
         dialog.close();
       });

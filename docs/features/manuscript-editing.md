@@ -26,12 +26,13 @@ Scenario: Edit with WYSIWYG
   When the operator views the editor
   Then Markdown emphasis and structure are shown as formatted text
   And saving persists Markdown on disk, not HTML
+  And pasting or inserting Markdown is parsed into that formatted view
 
 Scenario: Autosave
   Given the operator typed in the chapter editor
   And ten seconds pass with no further keypress
   When the idle timer fires
-  Then the chapter file is saved through the same save endpoint as an explicit save
+  Then the chapter file is saved through the autosave endpoint
 
 Scenario: Autosave on leave
   Given the operator has unsaved edits in the chapter editor
@@ -39,11 +40,30 @@ Scenario: Autosave on leave
   Then the chapter is saved through the same autosave endpoint asynchronously
   And the browser does not show a leave-confirm dialog
 
+Scenario: Accidental empty overwrite is refused
+  Given a chapter with substantial content on disk
+  When idle autosave or leave-save would write empty or near-empty text
+  Then the on-disk chapter is left unchanged
+  And the studio does not treat that wipe as a successful save
+
+Scenario: Chapter version history
+  Given the operator edited a chapter and then left Write (navigation or closing the tab)
+  When the operator opens History for that chapter
+  Then prior minor versions are listed with timestamps and word counts
+  And opening a version loads it into the editor without overwriting the on-disk Latest
+
+Scenario: Editing an older version
+  Given the operator is viewing an older chapter version in the editor
+  When they start to change the text
+  Then they are warned that continuing would make that content the Latest
+  And they can Proceed (edit and save as Latest) or Open Read-Only (editing disabled)
+
 Scenario: Unsaved edits highlight
-  Given the operator has unsaved edits in the chapter editor
-  When the editor is dirty
-  Then characters added since the last save are highlighted
-  And characters removed since the last save remain visible at 90% transparency with strikethrough
+  Given an open chapter with no edits since it was loaded or last saved
+  Then the editor shows no unsaved-change highlighting
+  Given the operator edits the chapter
+  Then only characters added since that baseline are highlighted
+  And characters removed since that baseline remain visible at 90% transparency with strikethrough
 
 Scenario: Reorder chapters from Write
   Given the Write view with two or more chapters
@@ -101,19 +121,24 @@ Scenario: Insert illustration into a chapter
 - Details fields map to `metadata.yaml`: title, subtitle, author, lang, rights, date, description.
 - Assets live in `manuscript/resources/`; images are served at `/books/<id>/assets/<name>` for preview and editor display.
 - Embedded images in Markdown use `resources/<filename>` so Pandoc’s manuscript resource path still resolves them.
-- The chapter editor is WYSIWYG for reading, Markdown for storage (including autosave and explicit save).
+- The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no explicit Save control on Write). Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax.
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
-- While the editor is dirty, unsaved additions are highlighted in place and unsaved removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop).
+- Saving must not replace a substantial on-disk chapter with blank or heading-only text (guards against undo-to-empty then autosave).
+- Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
+- Unsaved highlighting is a character diff against the chapter text at last load or last successful save. Opening a chapter shows no highlights until the operator edits. Additions are highlighted in place; removals stay visible as struck-through text at 90% transparency (not a whole-editor backdrop).
 - Paths stay inside the book package; `..` is rejected.
 - `metadata.yaml` and `manuscript/Book.txt` cannot be deleted.
 
 ### Must nots
 
 - Must not rewrite chapter bytes except when the operator (or autosave) saves them.
+- Must not overwrite on-disk Latest merely by opening a historic version in the editor.
+- Must not persist a blank or heading-only overwrite over a substantial chapter.
 - Must not store HTML as the chapter source of truth.
 - Must not require a client-side SPA build; server-rendered pages plus small scripts (and CDN editor assets) are enough.
 - Must not bury Download or Publish only inside the chapter layout; they belong in the book navbar.
 - Must not block navigation with a browser leave-confirm dialog when the chapter has unsaved edits.
+- Must not use `window.prompt`, `window.confirm`, or `window.alert` for the older-version edit warning; use HTML `<dialog>`.
 
 ### Preferences
 
@@ -129,10 +154,10 @@ Scenario: Insert illustration into a chapter
 ## Acceptance criteria
 
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
-2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave, Save now, and leave-save use the same endpoint; leave does not use a browser confirm dialog; dirty state highlights added characters and shows removed characters struck through at 90% transparency.
-3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown.
+2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save now control; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency.
+3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown; pasted or inserted Markdown is parsed into that view.
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
 7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown.
-8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter rename/reorder/remove, and asset upload/serve).
+8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter history list/revision/checkpoint, historic-view UI without overwrite, chapter rename/reorder/remove, and asset upload/serve).

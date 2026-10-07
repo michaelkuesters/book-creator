@@ -23,14 +23,18 @@ from book_creator.packages import (
     has_override,
     import_book,
     list_assets,
+    checkpoint_chapter_history,
+    list_chapter_history,
     list_chapters,
     list_editions,
     list_files,
     list_library_books,
     load_metadata,
     read_book_txt,
+    read_chapter_history,
     read_text_file,
     resolve_inside,
+    restore_chapter_history,
     chapter_filename,
     rename_chapter,
     touch_book,
@@ -208,15 +212,18 @@ def save_file(
     path: str = Form(...),
     content: str = Form(""),
     autosave: bool = False,
+    checkpoint: bool = False,
 ):
     _book_or_404(book_id)
     try:
-        write_text_file(book_root(book_id), path, content)
+        root = book_root(book_id)
+        write_text_file(root, path, content)
+        revision = checkpoint_chapter_history(root, path) if checkpoint else None
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
     if _wants_json(request, autosave):
-        return JSONResponse({"ok": True, "path": path})
+        return JSONResponse({"ok": True, "path": path, "revision": revision})
     return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
 
 
@@ -268,6 +275,57 @@ def remove_file(request: Request, book_id: str, path: str = Form(...)):
     if path.startswith("manuscript/resources/"):
         return RedirectResponse(f"/books/{book_id}/assets", status_code=303)
     return RedirectResponse(f"/books/{book_id}", status_code=303)
+
+
+@app.get("/books/{book_id}/files/history")
+def chapter_history(book_id: str, path: str):
+    _book_or_404(book_id)
+    try:
+        items = list_chapter_history(book_root(book_id), path)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return JSONResponse({"ok": True, "path": path, "revisions": items})
+
+
+@app.post("/books/{book_id}/files/history/checkpoint")
+def chapter_history_checkpoint(request: Request, book_id: str, path: str = Form(...)):
+    _book_or_404(book_id)
+    try:
+        revision = checkpoint_chapter_history(book_root(book_id), path)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, "revision": revision})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+
+
+@app.get("/books/{book_id}/files/history/revision")
+def chapter_history_revision(book_id: str, path: str, id: str):
+    _book_or_404(book_id)
+    try:
+        content = read_chapter_history(book_root(book_id), path, id)
+    except PackageError as exc:
+        raise HTTPException(404 if "not found" in str(exc).lower() else 400, str(exc)) from exc
+    return JSONResponse({"ok": True, "path": path, "id": id, "content": content})
+
+
+@app.post("/books/{book_id}/files/history/restore")
+def chapter_history_restore(
+    request: Request,
+    book_id: str,
+    path: str = Form(...),
+    id: str = Form(...),
+):
+    _book_or_404(book_id)
+    try:
+        content = restore_chapter_history(book_root(book_id), path, id)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, "id": id, "content": content})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
 
 
 @app.post("/books/{book_id}/resources")

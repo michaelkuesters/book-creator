@@ -33,6 +33,11 @@ Scenario: Scroll under the top bar
   Given Dark or Light theme
   When the operator scrolls a tall Write view
   Then chapter content does not show through or fight the sticky top bar
+
+Scenario: Browser tab icon
+  Given any studio page
+  When the operator views the browser tab
+  Then a Book Creator favicon is shown
 ```
 
 ## Feature description
@@ -48,6 +53,7 @@ Scenario: Scroll under the top bar
 - Theme applies via CSS variables on `html` / `:root`. Custom writing ink applies via a separate writing-area variable (for example `--write-ink`), not by overriding chrome `--ink`.
 - Dark/Light theme still styles the WYSIWYG chrome (toolbar, surface); only the editable text ink is customizable.
 - The sticky top bar uses an opaque theme background so scrolled content does not visually conflict with navbar controls.
+- Shared chrome links a Book Creator favicon for the browser tab.
 - No server account or SQLite prefs.
 
 ### Must nots
@@ -72,4 +78,5 @@ Scenario: Scroll under the top bar
 1. Shared chrome includes a Settings control that opens a `<dialog>` with light/dark controls and a writing text-color control.
 2. The shared top bar exposes Settings from Library and book pages without requiring a separate Settings URL for normal use.
 3. Dark theme styles the WYSIWYG editor surface; custom text color applies to writing contents only; chrome keeps theme default ink; the sticky top bar stays opaque over scrolled Write content.
-4. Covered by `tests/test_app.py` for Settings sheet markup in shared chrome.
+4. Shared chrome serves a Book Creator favicon for browser tabs.
+5. Covered by `tests/test_app.py` for Settings sheet markup and favicon in shared chrome.

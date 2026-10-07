@@ -79,10 +79,14 @@
                spellcheck="true">
       </div>
       <div class="row editor-toolbar-extra">
+        <button type="button" class="button ghost" id="chapter-history-btn">History</button>
         <button type="button" class="button ghost" id="insert-asset-btn">Insert illustration</button>
-        <button type="button" class="button ghost" id="save-now-btn">Save now</button>
       </div>
     </header>
+    <div id="version-banner" class="version-banner" hidden>
+      <p id="version-banner-text" class="muted"></p>
+      <button type="button" class="button ghost" id="version-back-latest">Back to Latest</button>
+    </div>
     <form id="editor-form" method="post" action="/books/{{ book.id }}/files">
       <input type="hidden" name="path" value="{{ selected }}">
       <textarea class="editor" name="content" id="editor-content" hidden>{{ content }}</textarea>
@@ -101,6 +105,29 @@
     {% endif %}
   </section>
 </div>
+
+<dialog id="chapter-history-dialog" class="sheet">
+  <div class="sheet-body">
+    <h2>Chapter history</h2>
+    <p class="muted">Minor versions created when you leave the chapter. Opening a version shows it here without changing Latest.</p>
+    <ul class="history-list" id="chapter-history-list"></ul>
+    <p class="muted" id="chapter-history-empty" hidden>No prior versions yet.</p>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Close</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="version-promote-dialog" class="sheet">
+  <div class="sheet-body">
+    <h2>Make this Latest?</h2>
+    <p class="muted">You are viewing an older version. Editing it would make that content the Latest chapter on disk.</p>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" id="version-open-readonly">Open Read-Only</button>
+      <button type="button" id="version-proceed">Proceed</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="asset-picker" class="sheet asset-sheet">
   <div class="sheet-body">
@@ -160,5 +187,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
-<script src="/static/studio.js?v=8"></script>
+<script src="/static/studio.js?v=13"></script>
 {% endblock %}
