@@ -15,6 +15,10 @@
   /** null | { id, content, label, mode: 'browsing'|'readonly', latestMarkdown } */
   let versionView = null;
   let promoteDialogOpen = false;
+  let wwViewRef = null;
+  let TextSelectionClass = null;
+  /** @type {null | { from: number, to: number, md: string }} */
+  let pendingMarkdownReplace = null;
 
   function setSaveStatus(text, state) {
     const el = document.getElementById("save-status");
@@ -427,18 +431,45 @@
     }
   }
 
+  function scheduleMarkdownReplace(from, to, md) {
+    if (pendingMarkdownReplace) return;
+    pendingMarkdownReplace = { from: from, to: to, md: md };
+    window.setTimeout(flushMarkdownReplace, 0);
+  }
+
+  function flushMarkdownReplace() {
+    var job = pendingMarkdownReplace;
+    pendingMarkdownReplace = null;
+    if (!job || !editor || !wwViewRef || !TextSelectionClass) return;
+    if (versionView && versionView.mode === "readonly") return;
+    var view = wwViewRef;
+    var size = view.state.doc.content.size;
+    if (job.from < 0 || job.to > size || job.from >= job.to) return;
+    var live = view.state.doc.textBetween(job.from, job.to, "\n", "\n");
+    // Allow trailing newline differences from block boundaries.
+    if (live.replace(/\n$/, "") !== job.md.replace(/\n$/, "")) return;
+    try {
+      var tr = view.state.tr.delete(job.from, job.to);
+      tr.setSelection(TextSelectionClass.create(tr.doc, job.from));
+      view.dispatch(tr);
+      insertMarkdownParsed(job.md);
+    } catch (err) {
+      /* selection may be invalid after a concurrent edit */
+    }
+  }
+
   /**
-   * Convert completed inline Markdown markers to WW marks as the operator types.
-   * Toast UI does not do this by default in WYSIWYG mode. We watch the doc after
-   * each change and replace a just-completed marker pair before the caret.
+   * Convert completed Markdown constructs to WW nodes/marks as the operator types.
+   * Toast UI does not do this by default in WYSIWYG mode.
    */
   function markdownInlineInputPlugin(context) {
     var Plugin = context.pmState.Plugin;
     var PluginKey = context.pmState.PluginKey;
+    TextSelectionClass = context.pmState.TextSelection;
     var key = new PluginKey("bcMarkdownInlineInput");
     var META = "bcMdInline";
     // Order: longer openers first so ** wins over *, ~~ is unambiguous.
-    var rules = [
+    var inlineRules = [
       { re: /\*\*([^*\n]+)\*\*$/, mark: "strong" },
       { re: /__([^_\n]+)__$/, mark: "strong" },
       { re: /~~([^~\n]+)~~$/, mark: "strike" },
@@ -447,17 +478,195 @@
       { re: /(?<![*_])_([^_\n]+)_$/, mark: "emph" },
     ];
 
-    function conversionTr(state) {
-      if (versionView && versionView.mode === "readonly") return null;
-      var sel = state.selection;
-      if (!sel.empty) return null;
-      var $pos = sel.$from;
-      if (!$pos.parent.isTextblock) return null;
-      var before = $pos.parent.textBetween(0, $pos.parentOffset, null, "\ufffc");
-      if (!before) return null;
+    function inListItem($pos) {
+      for (var d = $pos.depth; d > 0; d--) {
+        if ($pos.node(d).type.name === "listItem") return true;
+      }
+      return false;
+    }
 
-      for (var i = 0; i < rules.length; i++) {
-        var rule = rules[i];
+    function isTableRow(text) {
+      return /^\|.+\|/.test(String(text || "").trim());
+    }
+
+    function isTableSeparator(text) {
+      return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(text || "").trim());
+    }
+
+    function blockTextsBefore($pos) {
+      var texts = [];
+      var index = $pos.index($pos.depth - 1);
+      var parent = $pos.node($pos.depth - 1);
+      for (var i = index; i >= 0 && i >= index - 12; i--) {
+        var child = parent.child(i);
+        if (!child.isTextblock) break;
+        texts.unshift(child.textContent);
+      }
+      return texts;
+    }
+
+    function tableMarkdownIfComplete(rows) {
+      if (!rows || rows.length < 2) return null;
+      var sepIdx = -1;
+      for (var i = 0; i < rows.length; i++) {
+        if (isTableSeparator(rows[i])) {
+          sepIdx = i;
+          break;
+        }
+      }
+      if (sepIdx < 1) return null;
+      var slice = rows.slice(0, rows.length);
+      // Need header above separator and only table-looking lines.
+      for (var j = 0; j < slice.length; j++) {
+        if (j === sepIdx) continue;
+        if (!isTableRow(slice[j])) return null;
+      }
+      return slice.join("\n");
+    }
+
+    function tryBlock(state, $pos, before, trBase) {
+      if ($pos.parent.type.name !== "paragraph") return null;
+      var schema = state.schema;
+      var start = $pos.start();
+      var pos = $pos.pos;
+
+      // ATX heading: "# " … "###### "
+      var heading = before.match(/^(#{1,6})\s$/);
+      if (heading && !inListItem($pos) && schema.nodes.heading) {
+        var level = heading[1].length;
+        var trH = trBase || state.tr;
+        trH.delete(start, pos);
+        var mappedH = trH.mapping.map(start);
+        trH.setBlockType(
+          mappedH,
+          trH.mapping.map($pos.end()),
+          schema.nodes.heading,
+          { level: level }
+        );
+        return trH;
+      }
+
+      // Block quote: "> "
+      if (before === "> " && !inListItem($pos) && schema.nodes.blockQuote) {
+        var trQ = trBase || state.tr;
+        trQ.delete(start, pos);
+        var $q = trQ.doc.resolve(trQ.mapping.map(start));
+        var rangeQ = $q.blockRange();
+        if (rangeQ) trQ.wrap(rangeQ, [{ type: schema.nodes.blockQuote }]);
+        return trQ;
+      }
+
+      // Task list: "- [ ] " / "- [x] " / "* [ ] " (must win over plain bullets)
+      var task = before.match(/^([-*+])\s+\[([ xX])\]\s$/);
+      if (task && !inListItem($pos) && schema.nodes.bulletList && schema.nodes.listItem) {
+        var checked = task[2] !== " ";
+        var trT = trBase || state.tr;
+        trT.delete(start, pos);
+        var $t = trT.doc.resolve(trT.mapping.map(start));
+        var rangeT = $t.blockRange();
+        if (rangeT) {
+          trT.wrap(rangeT, [
+            { type: schema.nodes.bulletList },
+            { type: schema.nodes.listItem, attrs: { task: true, checked: checked } },
+          ]);
+        }
+        return trT;
+      }
+
+      // Bullet list: "- x" / "* x" / "+ x" — wait past "- " so "- [ ] " can become a task.
+      var bullet = before.match(/^([-*+])\s([^\[\n])$/);
+      if (bullet && !inListItem($pos) && schema.nodes.bulletList && schema.nodes.listItem) {
+        var trB = trBase || state.tr;
+        // Delete only the marker and space; keep the first content character.
+        trB.delete(start, start + 2);
+        var $b = trB.doc.resolve(trB.mapping.map(start));
+        var rangeB = $b.blockRange();
+        if (rangeB) {
+          trB.wrap(rangeB, [
+            { type: schema.nodes.bulletList },
+            { type: schema.nodes.listItem },
+          ]);
+        }
+        return trB;
+      }
+
+      // Ordered list: "1. x" — same delayed trigger as bullets so "1. " alone stays raw briefly.
+      var ordered = before.match(/^(\d+)\.\s([^\[\n])$/);
+      if (ordered && !inListItem($pos) && schema.nodes.orderedList && schema.nodes.listItem) {
+        var order = Math.max(1, parseInt(ordered[1], 10) || 1);
+        var markerLen = String(ordered[1]).length + 2; // digits + ". "
+        var trO = trBase || state.tr;
+        trO.delete(start, start + markerLen);
+        var $o = trO.doc.resolve(trO.mapping.map(start));
+        var rangeO = $o.blockRange();
+        if (rangeO) {
+          trO.wrap(rangeO, [
+            { type: schema.nodes.orderedList, attrs: { order: order } },
+            { type: schema.nodes.listItem },
+          ]);
+        }
+        return trO;
+      }
+
+      // Thematic break on its own line: --- / *** / ___
+      if (
+        /^(-{3,}|\*{3,}|_{3,})$/.test(before) &&
+        !inListItem($pos) &&
+        schema.nodes.thematicBreak
+      ) {
+        var trR = trBase || state.tr;
+        var beforePos = $pos.before();
+        var afterPos = $pos.after();
+        var nodes = [schema.nodes.thematicBreak.create()];
+        if (schema.nodes.paragraph) nodes.push(schema.nodes.paragraph.create());
+        trR.replaceWith(beforePos, afterPos, nodes);
+        return trR;
+      }
+
+      return null;
+    }
+
+    function tryLinkOrImage(state, $pos, before) {
+      var schema = state.schema;
+      var image = before.match(/!\[([^\]]*)\]\(([^)\s]+)\)$/);
+      if (image && schema.nodes.image) {
+        var alt = image[1];
+        var imageUrl = image[2];
+        var matchLenImg = image[0].length;
+        var fromImg = $pos.pos - matchLenImg;
+        if (fromImg < $pos.start()) return null;
+        var trImg = state.tr;
+        var imgNode = schema.nodes.image.create({
+          imageUrl: imageUrl,
+          altText: alt || null,
+        });
+        trImg.replaceWith(fromImg, $pos.pos, imgNode);
+        return trImg;
+      }
+
+      // Image is tried first; reject a bare [...](...) that is actually the tail of ![...](...).
+      var link = before.match(/\[([^\]]+)\]\(([^)\s]+)\)$/);
+      if (link && schema.marks.link) {
+        var matchLen = link[0].length;
+        var from = $pos.pos - matchLen;
+        if (from < $pos.start()) return null;
+        var prefixIdx = before.length - matchLen - 1;
+        if (prefixIdx >= 0 && before.charAt(prefixIdx) === "!") return null;
+        var label = link[1];
+        var linkUrl = link[2];
+        var tr = state.tr;
+        tr.delete(from, $pos.pos);
+        tr.insertText(label, from);
+        tr.addMark(from, from + label.length, schema.marks.link.create({ linkUrl: linkUrl }));
+        tr.removeStoredMark(schema.marks.link);
+        return tr;
+      }
+      return null;
+    }
+
+    function tryInlineMarks(state, $pos, before) {
+      for (var i = 0; i < inlineRules.length; i++) {
+        var rule = inlineRules[i];
         var m = before.match(rule.re);
         if (!m) continue;
         var markType = state.schema.marks[rule.mark];
@@ -471,11 +680,56 @@
         tr.delete(from, $pos.pos);
         tr.insertText(inner, from);
         tr.addMark(from, from + inner.length, markType.create());
-        // Stop the mark from sticking to the next characters the operator types.
         tr.removeStoredMark(markType);
-        tr.setMeta(META, true);
-        tr.setMeta("addToHistory", true);
         return tr;
+      }
+      return null;
+    }
+
+    function tryTable(state, $pos) {
+      if ($pos.parent.type.name !== "paragraph") return false;
+      if ($pos.depth < 1) return false;
+      var rows = blockTextsBefore($pos);
+      var md = tableMarkdownIfComplete(rows);
+      if (!md) return false;
+      var parentDepth = $pos.depth - 1;
+      var parent = $pos.node(parentDepth);
+      var index = $pos.index(parentDepth);
+      var firstIndex = index - (rows.length - 1);
+      if (firstIndex < 0) return false;
+      var from = $pos.start(parentDepth);
+      for (var i = 0; i < firstIndex; i++) {
+        from += parent.child(i).nodeSize;
+      }
+      var to = $pos.after($pos.depth);
+      scheduleMarkdownReplace(from, to, md);
+      return true;
+    }
+
+    function conversionTr(state) {
+      if (versionView && versionView.mode === "readonly") return null;
+      var sel = state.selection;
+      if (!sel.empty) return null;
+      var $pos = sel.$from;
+      if (!$pos.parent.isTextblock) return null;
+      var before = $pos.parent.textBetween(0, $pos.parentOffset, null, "\ufffc");
+      if (!before) {
+        // Empty new paragraph after a table-looking block: still try siblings above.
+        if (tryTable(state, $pos)) return null;
+        return null;
+      }
+
+      var blockTr = tryBlock(state, $pos, before, null);
+      if (blockTr) return blockTr;
+
+      var linkTr = tryLinkOrImage(state, $pos, before);
+      if (linkTr) return linkTr;
+
+      var markTr = tryInlineMarks(state, $pos, before);
+      if (markTr) return markTr;
+
+      if (isTableRow(before) || isTableSeparator(before)) {
+        tryTable(state, $pos);
       }
       return null;
     }
@@ -490,7 +744,20 @@
               if (!transactions.length) return null;
               if (transactions.some(function (tr) { return tr.getMeta(META); })) return null;
               if (!transactions.some(function (tr) { return tr.docChanged; })) return null;
-              return conversionTr(newState);
+              var tr = conversionTr(newState);
+              if (tr) {
+                tr.setMeta(META, true);
+                tr.setMeta("addToHistory", true);
+              }
+              return tr;
+            },
+            view: function (editorView) {
+              wwViewRef = editorView;
+              return {
+                destroy: function () {
+                  if (wwViewRef === editorView) wwViewRef = null;
+                },
+              };
             },
           });
         },

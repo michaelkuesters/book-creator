@@ -199,6 +199,13 @@ def test_chapter_history_list_and_restore(data_dir):
     assert b"markdownInlineInputPlugin" in studio_js.content
     assert b"appendTransaction" in studio_js.content
     assert b"bcMarkdownInlineInput" in studio_js.content
+    assert b"scheduleMarkdownReplace" in studio_js.content
+    assert b"tryBlock" in studio_js.content or b"ATX heading" in studio_js.content
+    assert b"bulletList" in studio_js.content
+    assert b"orderedList" in studio_js.content
+    assert b"linkUrl" in studio_js.content
+    assert b"imageUrl" in studio_js.content
+    assert b"isTableSeparator" in studio_js.content
     assert b"hideModeSwitch: false" in studio_js.content
     assert b"sessionNeedsCheckpoint" in studio_js.content
     assert b"files/history/checkpoint" in studio_js.content

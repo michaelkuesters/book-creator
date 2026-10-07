@@ -28,12 +28,15 @@ Scenario: Edit with WYSIWYG
   And saving persists Markdown on disk, not HTML
   And pasting or inserting Markdown is parsed into that formatted view
 
-Scenario: Type markdown inline markers
+Scenario: Type markdown markers
   Given an open chapter in the WYSIWYG editor
-  When the operator types inline Markdown and completes the closing markers
-    (for example *italic*, **bold**, ~~strike~~, or `code`)
-  Then that span converts in place to formatted text
-  And the markers are no longer shown as raw characters
+  When the operator types Markdown and completes a construct
+    (inline markers such as *italic*, **bold**, ~~strike~~, `code`,
+    [label](url), ![alt](url);
+    or block prefixes such as # / ## headings, - / * lists, 1. enumerations,
+    - [ ] tasks, > quotes, --- rules; or a GFM pipe table)
+  Then that construct converts in place to the formatted WYSIWYG equivalent
+  And the raw Markdown delimiters are no longer shown as plain characters
 
 Scenario: Autosave
   Given the operator typed in the chapter editor
@@ -137,7 +140,7 @@ Scenario: Insert illustration into a chapter
 - Details fields map to `metadata.yaml`: title, subtitle, author, lang, rights, date, description.
 - Assets live in `manuscript/resources/`; images are served at `/books/<id>/assets/<name>` for preview and editor display.
 - Embedded images in Markdown use `resources/<filename>` so Pandoc’s manuscript resource path still resolves them.
-- The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no explicit Save control on Write). Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax. Typing inline Markdown markers in the WYSIWYG view converts the span to formatted text as soon as the closing markers are completed (for example `*italic*`, `**bold**`, `~~strike~~`, `` `code` ``); raw delimiter characters must not remain visible after that conversion.
+- The chapter editor is WYSIWYG for display while editing; Markdown remains the on-disk source of truth (idle autosave and leave-save; no explicit Save control on Write). Operators can paste or insert Markdown and it is parsed into the formatted view—not left as raw syntax. Typing Markdown in the WYSIWYG view converts a construct as soon as it is completed: inline emphasis/code, links, images, ATX headings (`#`–`######` plus space), bullet and ordered lists, task items (`- [ ]` / `- [x]`), block quotes, thematic breaks, and GFM pipe tables. Raw delimiter characters must not remain visible after that conversion.
 - Leaving a dirty chapter (in-app navigation or unload) saves through the same autosave endpoint asynchronously; the browser must not show a leave-confirm dialog.
 - Saving must not replace a substantial on-disk chapter with blank or heading-only text (guards against undo-to-empty then autosave).
 - Leaving a chapter after content-changing saves creates a timestamped minor version of the chapter under `.history/` in the book package (per chapter, newest first). Idle autosaves do not create versions. Versions are not hard-capped. Each listed version shows its timestamp and word count. History is an audit trail of leave-time revisions; it is not part of Book.txt or package zip exports. Write offers History to open a version in the editor without writing it to disk (Latest stays intact). Starting to edit while viewing an older version shows a `<dialog>` warning that continuing would make that content the Latest, with Proceed or Open Read-Only. Proceed allows editing and saving as Latest (checkpointing on-disk Latest first when it differs from the newest version). Open Read-Only disables editing for that historic view. The operator can return to Latest without promoting.
@@ -174,7 +177,7 @@ Scenario: Insert illustration into a chapter
 
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
 2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; idle autosave and leave-save use the same endpoint; Write has no Save now control; leave does not use a browser confirm dialog; blank/heading-only overwrites of substantial chapters are refused; leaving after content-changing saves creates a timestamped minor version under `.history/` (with word count in the History list)—idle autosaves do not create versions; opening a historic version does not overwrite Latest; starting to edit an older version warns via `<dialog>` with Proceed (save as Latest after checkpoint) or Open Read-Only; History offers Squash only when something can be collapsed, with a `<dialog>` scope picker (Same days / Same week / All, only when applicable) that keeps the newest version per group without retimestamping it; after load or save there is no unsaved highlighting until edits, then added characters are highlighted and removed characters are struck through at 90% transparency.
-3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown; pasted or inserted Markdown is parsed into that view; completing typed inline Markdown markers converts that span in place to formatted text.
+3. WYSIWYG displays formatted Markdown (emphasis, links, images, headings, lists, tasks, quotes, rules, tables) while the saved file remains Markdown; pasted or inserted Markdown is parsed into that view; completing typed Markdown constructs converts them in place to formatted text.
 4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename (dialog or inline header) updates heading title and filename together and rewrites `Book.txt`; remove (dialog confirm) deletes the file and drops it from `Book.txt`.
 5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
 6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
