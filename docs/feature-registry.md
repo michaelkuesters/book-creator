@@ -20,6 +20,7 @@ Load the guidelines every session. Load **one** feature document for the approve
 | `manuscript-editing` | Manuscript editing | [features/manuscript-editing.md](features/manuscript-editing.md) | active | Write chapters (WYSIWYG→Markdown), manage assets, edit details and order |
 | `package-exchange` | Package exchange | [features/package-exchange.md](features/package-exchange.md) | active | Upload and download Leanpub-shaped zips |
 | `edition-build` | Edition build | [features/edition-build.md](features/edition-build.md) | active | Generate and download PDF and EPUB (default studio builder or explicit override) |
+| `studio-settings` | Studio settings | [features/studio-settings.md](features/studio-settings.md) | active | Studio-wide light/dark mode and UI text color (localStorage) |
 
 ## How to use this registry
 

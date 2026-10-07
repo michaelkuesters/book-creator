@@ -99,34 +99,76 @@ def list_chapters(root: Path) -> list[dict]:
     return chapters
 
 
-def set_chapter_title(root: Path, relative: str, title: str) -> str:
-    """Update the chapter's leading AT1 heading. Returns the cleaned title."""
+def chapter_filename(title: str) -> str:
+    cleaned = " ".join(str(title).split()).strip()
+    cleaned = cleaned.replace("\0", "").replace("/", "-").replace("\\", "-")
+    cleaned = cleaned.strip(". ") or "chapter"
+    name = Path(cleaned).name
+    if name.lower() in {"book.txt", "metadata.yaml"}:
+        name = "chapter"
+    if not name.lower().endswith(".md"):
+        name += ".md"
+    return name
+
+
+def unique_manuscript_name(root: Path, desired: str, *, exclude: str | None = None) -> str:
+    manuscript = root / "manuscript"
+    name = Path(desired).name
+    if name == exclude or not (manuscript / name).is_file():
+        return name
+    stem = Path(name).stem
+    suffix = Path(name).suffix or ".md"
+    n = 2
+    while True:
+        candidate = f"{stem}-{n}{suffix}"
+        if candidate == exclude or not (manuscript / candidate).is_file():
+            return candidate
+        n += 1
+
+
+def _with_heading(text: str, title: str) -> str:
+    body = text.replace("\r\n", "\n")
+    lines = body.splitlines()
+    heading = f"# {title}"
+    if lines and lines[0].strip().startswith("#"):
+        lines[0] = heading
+        body = "\n".join(lines)
+    else:
+        body = heading + ("\n\n" + body.lstrip("\n") if body.strip() else "\n")
+    if not body.endswith("\n"):
+        body += "\n"
+    return body
+
+
+def rename_chapter(root: Path, relative: str, title: str) -> dict:
+    """Update heading title and keep the manuscript filename in sync."""
     rel = relative.replace("\\", "/").lstrip("/")
     if not rel.startswith("manuscript/") or not rel.endswith(".md"):
         raise PackageError("Only manuscript chapters can be renamed")
     if rel in PROTECTED:
         raise PackageError("This file cannot be renamed")
-    cleaned = " ".join(title.split()).strip()
+    cleaned = " ".join(str(title).split()).strip()
     if not cleaned:
         raise PackageError("Chapter title is required")
     path = resolve_inside(root, rel)
     if not path.is_file():
         raise PackageError("File not found")
-    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
-    lines = text.splitlines()
-    heading = f"# {cleaned}"
-    if lines and lines[0].strip().startswith("# "):
-        lines[0] = heading
-        body = "\n".join(lines)
-    elif lines and lines[0].strip() == "#":
-        lines[0] = heading
-        body = "\n".join(lines)
+    old_name = path.name
+    new_name = unique_manuscript_name(root, chapter_filename(cleaned), exclude=old_name)
+    content = _with_heading(path.read_text(encoding="utf-8"), cleaned)
+    if new_name == old_name:
+        path.write_text(content, encoding="utf-8")
     else:
-        body = heading + ("\n\n" + text.lstrip("\n") if text.strip() else "\n")
-    if not body.endswith("\n"):
-        body += "\n"
-    path.write_text(body, encoding="utf-8")
-    return cleaned
+        dest = path.with_name(new_name)
+        if dest.exists():
+            raise PackageError(f"Chapter file already exists: {new_name}")
+        path.write_text(content, encoding="utf-8")
+        path.rename(dest)
+        path = dest
+        order = [new_name if item == old_name else item for item in read_book_txt(root)]
+        write_book_txt(root, order)
+    new_path = path.relative_to(root).as_posix()
+    return {"title": cleaned, "name": new_name, "path": new_path}
 
 
 def find_cover(root: Path) -> Path | None:
@@ -203,7 +245,7 @@ def init_empty_package(root: Path, title: str = "Untitled book") -> None:
     (manuscript / "resources").mkdir(parents=True)
     (root / "styles").mkdir(parents=True)
     write_metadata(root, default_metadata(title))
-    chapter = "00-start.md"
+    chapter = chapter_filename(title)
     (manuscript / chapter).write_text(f"# {title}\n\nWrite the first chapter here.\n", encoding="utf-8")
     write_book_txt(root, [chapter])
     shutil.copy(BUNDLED_CSS, root / "styles" / "epub.css")

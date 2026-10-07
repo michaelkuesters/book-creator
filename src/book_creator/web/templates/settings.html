@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Settings · Book Creator{% endblock %}
+{% block body_class %}page-settings{% endblock %}
+{% block settings_active %}active{% endblock %}
+{% block header_sub %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/">Library</a>
+  <span aria-hidden="true">/</span>
+  <span>Settings</span>
+</nav>
+{% endblock %}
+{% block body %}
+<section class="panel settings-page">
+  <h1>Settings</h1>
+  <p class="muted">Appearance for this browser only. Does not change book packages.</p>
+
+  <form id="studio-settings-form" class="settings-fields">
+    <fieldset>
+      <legend>Theme</legend>
+      <div class="theme-toggle" role="radiogroup" aria-label="Theme">
+        <label>
+          <input type="radio" name="theme" value="light" id="theme-light">
+          Light
+        </label>
+        <label>
+          <input type="radio" name="theme" value="dark" id="theme-dark">
+          Dark
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Text color</legend>
+      <div class="settings-color">
+        <label class="sr-only" for="ink-color">Text color</label>
+        <input type="color" id="ink-color" name="ink" value="#1a2330">
+        <button type="button" class="button ghost" id="ink-reset">Reset to theme default</button>
+      </div>
+    </fieldset>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/settings.js?v=1"></script>
+{% endblock %}

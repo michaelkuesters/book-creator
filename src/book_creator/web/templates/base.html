@@ -1,13 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Book Creator{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem("bc.theme");
+        if (theme === "dark" || theme === "light") {
+          document.documentElement.setAttribute("data-theme", theme);
+        }
+        var ink = localStorage.getItem("bc.ink");
+        if (ink) document.documentElement.style.setProperty("--ink", ink);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -16,7 +28,10 @@
       <a class="brand-mark" href="/">Book Creator</a>
       {% block header_sub %}{% endblock %}
     </div>
-    {% block header_extra %}{% endblock %}
+    <div class="topbar-end">
+      {% block header_extra %}{% endblock %}
+      <a class="settings-link {% block settings_active %}{% endblock %}" href="/settings">Settings</a>
+    </div>
   </header>
   <main>
     {% block body %}{% endblock %}

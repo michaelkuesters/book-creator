@@ -30,7 +30,8 @@ from book_creator.packages import (
     read_book_txt,
     read_text_file,
     resolve_inside,
-    set_chapter_title,
+    chapter_filename,
+    rename_chapter,
     touch_book,
     write_binary_file,
     write_book_txt,
@@ -86,6 +87,11 @@ def _studio_context(book_id: str, building: str | None = None) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"books": list_library_books()})
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    return templates.TemplateResponse(request, "settings.html", {})
 
 
 @app.post("/books")
@@ -217,11 +223,9 @@ def add_file(
     name: str = Form(...),
 ):
     _book_or_404(book_id)
-    filename = Path(name).name
-    if not filename.endswith(".md"):
-        filename += ".md"
+    title = " ".join(name.split()).strip() or "Chapter"
+    filename = chapter_filename(title)
     relative = f"manuscript/{filename}"
-    title = Path(filename).stem.replace("-", " ").replace("_", " ").strip() or "Chapter"
     try:
         write_text_file(
             book_root(book_id),
@@ -239,13 +243,13 @@ def add_file(
 def rename_file(request: Request, book_id: str, path: str = Form(...), title: str = Form(...)):
     _book_or_404(book_id)
     try:
-        cleaned = set_chapter_title(book_root(book_id), path, title)
+        result = rename_chapter(book_root(book_id), path, title)
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
     if _wants_json(request):
-        return JSONResponse({"ok": True, "path": path, "title": cleaned})
-    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+        return JSONResponse({"ok": True, **result})
+    return RedirectResponse(f"/books/{book_id}?file={result['path']}", status_code=303)
 
 
 @app.post("/books/{book_id}/files/delete")

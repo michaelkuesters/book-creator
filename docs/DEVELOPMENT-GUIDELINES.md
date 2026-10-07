@@ -40,6 +40,11 @@ The [feature registry](feature-registry.md) lists every current feature and what
 - No secrets in source. No path traversal out of a book package.
 - While tests are red, only generate changes that restore them.
 
+## Frontend
+
+- Prefer server-rendered pages plus small scripts; no client-side SPA build requirement.
+- Use HTML `<dialog>` (with the studio’s sheet styling) for operator prompts: rename/edit fields, confirmations, pickers, and similar. Do not use `window.prompt`, `window.confirm`, or `window.alert` for product UI.
+
 ## Working a change
 
 1. Identify the feature in the [feature registry](feature-registry.md). If none fits, add a feature document and registry row before coding.

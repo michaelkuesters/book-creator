@@ -50,34 +50,96 @@
     if (textarea) textarea.value = currentMarkdown();
   }
 
+  function setDirty(next) {
+    dirty = next;
+    const host = document.getElementById("wysiwyg-editor");
+    if (host) host.classList.toggle("is-dirty", dirty);
+  }
+
   function scheduleSave() {
-    dirty = true;
+    setDirty(true);
     setSaveStatus("Unsaved changes — autosaves after 10s idle", "dirty");
     clearTimeout(timer);
     timer = setTimeout(saveNow, IDLE_MS);
   }
 
-  async function saveNow() {
+  function autosaveUrl(form) {
+    return form.action + (form.action.includes("?") ? "&" : "?") + "autosave=1";
+  }
+
+  async function saveNow(force) {
     const form = document.getElementById("editor-form");
-    if (!form || !dirty || saving) return;
+    if (!form || (!dirty && !force) || saving) return false;
     saving = true;
     setSaveStatus("Saving…", "saving");
     syncTextarea();
     try {
       const body = new FormData(form);
-      const response = await fetch(form.action + (form.action.includes("?") ? "&" : "?") + "autosave=1", {
+      const response = await fetch(autosaveUrl(form), {
         method: "POST",
         body,
         headers: { Accept: "application/json" },
       });
       if (!response.ok) throw new Error("save failed");
-      dirty = false;
+      setDirty(false);
       setSaveStatus("Saved", "saved");
+      return true;
     } catch (err) {
       setSaveStatus("Save failed", "error");
+      return false;
     } finally {
       saving = false;
     }
+  }
+
+  function saveOnUnload() {
+    const form = document.getElementById("editor-form");
+    if (!form || !dirty) return;
+    clearTimeout(timer);
+    syncTextarea();
+    const body = new FormData(form);
+    try {
+      fetch(autosaveUrl(form), {
+        method: "POST",
+        body,
+        headers: { Accept: "application/json" },
+        keepalive: true,
+      });
+    } catch (err) {
+      /* best-effort on unload */
+    }
+    setDirty(false);
+  }
+
+  function isEditorLeaveLink(anchor) {
+    if (!anchor || !anchor.href) return false;
+    if (anchor.target === "_blank") return false;
+    if (anchor.hasAttribute("download")) return false;
+    const url = new URL(anchor.href, window.location.href);
+    if (url.origin !== window.location.origin) return false;
+    if (url.href === window.location.href) return false;
+    return true;
+  }
+
+  function setupLeaveSave() {
+    if (!document.getElementById("editor-form")) return;
+
+    document.addEventListener("click", function (event) {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target.closest && event.target.closest("a[href]");
+      if (!isEditorLeaveLink(anchor)) return;
+      if (!dirty) return;
+      event.preventDefault();
+      const href = anchor.href;
+      clearTimeout(timer);
+      saveNow().finally(function () {
+        window.location.assign(href);
+      });
+    });
+
+    window.addEventListener("pagehide", saveOnUnload);
   }
 
   function setupWysiwyg() {
@@ -120,23 +182,19 @@
     form.addEventListener("submit", function () {
       syncTextarea();
       clearTimeout(timer);
-      dirty = false;
+      setDirty(false);
     });
 
     const saveBtn = document.getElementById("save-now-btn");
     if (saveBtn) {
       saveBtn.addEventListener("click", function () {
         clearTimeout(timer);
-        dirty = true;
+        setDirty(true);
         saveNow();
       });
     }
 
-    window.addEventListener("beforeunload", function (event) {
-      if (!dirty) return;
-      event.preventDefault();
-      event.returnValue = "";
-    });
+    setupLeaveSave();
   }
 
   async function uploadAsset(file, filename) {
@@ -315,58 +373,197 @@
     if (!response.ok) throw new Error("reorder failed");
   }
 
-  async function renameChapter(item) {
-    const current = item.dataset.title || "";
-    const next = window.prompt("Rename chapter", current);
-    if (next === null) return;
-    const title = next.trim();
-    if (!title || title === current) return;
-    const id = bookId();
+  function findChapterItem(path) {
+    return document.querySelector('.chapter-item[data-path="' + path + '"]');
+  }
+
+  function applyHeadingToEditor(title) {
+    if (!editor) return;
+    const storage = currentMarkdown();
+    const lines = storage.split("\n");
+    if (lines.length && lines[0].trim().indexOf("#") === 0) {
+      lines[0] = "# " + title;
+    } else {
+      lines.unshift("# " + title, "");
+    }
+    const next = lines.join("\n");
+    editor.setMarkdown(toPreviewMarkdown(next));
+    syncTextarea();
+    setDirty(true);
+  }
+
+  function applyRenameResult(data, oldPath) {
+    const item = findChapterItem(oldPath) || findChapterItem(data.path);
+    if (item) {
+      item.dataset.path = data.path;
+      item.dataset.name = data.name;
+      item.dataset.title = data.title;
+      const link = item.querySelector(".chapter-link");
+      if (link) {
+        link.textContent = data.title;
+        link.title = data.name;
+        link.setAttribute("href", "/books/" + bookId() + "?file=" + encodeURIComponent(data.path));
+      }
+      item.querySelectorAll("[aria-label]").forEach(function (button) {
+        const action = button.hasAttribute("data-chapter-rename") ? "Rename " : "Remove ";
+        button.setAttribute("aria-label", action + data.title);
+      });
+    }
+
+    const form = document.getElementById("editor-form");
+    const pathInput = form ? form.querySelector('input[name="path"]') : null;
+    const titleInput = document.getElementById("chapter-title-input");
+    const isActive = pathInput && pathInput.value === oldPath;
+    if (isActive) {
+      pathInput.value = data.path;
+      if (titleInput) {
+        titleInput.value = data.title;
+        titleInput.dataset.path = data.path;
+        titleInput.dataset.title = data.title;
+      }
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, "", "/books/" + bookId() + "?file=" + encodeURIComponent(data.path));
+      }
+    } else if (titleInput && titleInput.dataset.path === data.path) {
+      titleInput.value = data.title;
+      titleInput.dataset.title = data.title;
+    }
+  }
+
+  async function renameChapterByPath(path, title) {
+    const cleaned = (title || "").trim();
+    if (!cleaned) throw new Error("title required");
+    const titleInput = document.getElementById("chapter-title-input");
+    const form = document.getElementById("editor-form");
+    const pathInput = form ? form.querySelector('input[name="path"]') : null;
+    const isActive = pathInput && pathInput.value === path;
+    if (isActive) {
+      applyHeadingToEditor(cleaned);
+      clearTimeout(timer);
+      await saveNow(true);
+    }
     const body = new FormData();
-    body.append("path", item.dataset.path);
-    body.append("title", title);
-    const response = await fetch("/books/" + id + "/files/rename", {
+    body.append("path", path);
+    body.append("title", cleaned);
+    const response = await fetch("/books/" + bookId() + "/files/rename", {
       method: "POST",
       body,
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw new Error("rename failed");
     const data = await response.json();
-    item.dataset.title = data.title;
-    const link = item.querySelector(".chapter-link");
-    if (link) {
-      link.textContent = data.title;
-      link.title = item.dataset.name;
-    }
-    item.querySelectorAll("[aria-label]").forEach(function (button) {
-      const action = button.hasAttribute("data-chapter-rename") ? "Rename " : "Remove ";
-      button.setAttribute("aria-label", action + data.title);
-      button.title = action.trim();
-    });
-    if (link && link.classList.contains("active")) {
-      const heading = document.querySelector(".editor-header h2");
-      if (heading) heading.textContent = data.title;
-    }
+    applyRenameResult(data, path);
+    if (titleInput && isActive) setDirty(false);
+    return data;
   }
 
-  async function removeChapter(item) {
-    const title = item.dataset.title || item.dataset.name || "this chapter";
-    if (!window.confirm('Remove "' + title + '" from the book?')) return;
-    const id = bookId();
-    const path = item.dataset.path;
+  function openRenameDialog(path, title) {
+    const dialog = document.getElementById("rename-chapter-dialog");
+    const pathInput = document.getElementById("rename-chapter-path");
+    const titleInput = document.getElementById("rename-chapter-title");
+    if (!dialog || !pathInput || !titleInput) return;
+    pathInput.value = path;
+    titleInput.value = title || "";
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    titleInput.focus();
+    titleInput.select();
+  }
+
+  function openRemoveDialog(path, title) {
+    const dialog = document.getElementById("remove-chapter-dialog");
+    const pathInput = document.getElementById("remove-chapter-path");
+    const label = document.getElementById("remove-chapter-label");
+    if (!dialog || !pathInput || !label) return;
+    pathInput.value = path;
+    label.textContent = title || "this chapter";
+    if (typeof dialog.showModal === "function") dialog.showModal();
+  }
+
+  async function removeChapterByPath(path) {
     const body = new FormData();
     body.append("path", path);
-    const response = await fetch("/books/" + id + "/files/delete", {
+    const response = await fetch("/books/" + bookId() + "/files/delete", {
       method: "POST",
       body,
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw new Error("remove failed");
-    const wasActive = item.querySelector(".chapter-link.active");
-    item.remove();
+    const item = findChapterItem(path);
+    const wasActive = item && item.querySelector(".chapter-link.active");
+    if (item) item.remove();
     if (wasActive) {
       const next = document.querySelector(".chapter-item .chapter-link");
-      window.location.href = next ? next.getAttribute("href") : "/books/" + id;
+      window.location.href = next ? next.getAttribute("href") : "/books/" + bookId();
+    }
+  }
+
+  function setupChapterTitleInput() {
+    const input = document.getElementById("chapter-title-input");
+    if (!input) return;
+    let renaming = false;
+
+    async function commit() {
+      if (renaming) return;
+      const title = input.value.trim();
+      const previous = input.dataset.title || "";
+      if (!title) {
+        input.value = previous;
+        return;
+      }
+      if (title === previous) return;
+      renaming = true;
+      try {
+        await renameChapterByPath(input.dataset.path, title);
+      } catch (err) {
+        input.value = previous;
+        setSaveStatus("Rename failed", "error");
+      } finally {
+        renaming = false;
+      }
+    }
+
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        input.value = input.dataset.title || "";
+        input.blur();
+      }
+    });
+    input.addEventListener("blur", commit);
+  }
+
+  function setupChapterDialogs() {
+    const renameForm = document.getElementById("rename-chapter-form");
+    const removeForm = document.getElementById("remove-chapter-form");
+    if (renameForm) {
+      renameForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const path = document.getElementById("rename-chapter-path").value;
+        const title = document.getElementById("rename-chapter-title").value;
+        const dialog = document.getElementById("rename-chapter-dialog");
+        try {
+          await renameChapterByPath(path, title);
+          if (dialog) dialog.close();
+        } catch (err) {
+          setSaveStatus("Rename failed", "error");
+        }
+      });
+    }
+    if (removeForm) {
+      removeForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const path = document.getElementById("remove-chapter-path").value;
+        const dialog = document.getElementById("remove-chapter-dialog");
+        try {
+          await removeChapterByPath(path);
+          if (dialog) dialog.close();
+        } catch (err) {
+          setSaveStatus("Remove failed", "error");
+        }
+      });
     }
   }
 
@@ -431,9 +628,13 @@
         renameBtn.addEventListener("click", function (event) {
           event.preventDefault();
           event.stopPropagation();
-          renameChapter(item).catch(function () {
-            window.alert("Could not rename chapter.");
-          });
+          const titleInput = document.getElementById("chapter-title-input");
+          if (titleInput && titleInput.dataset.path === item.dataset.path) {
+            titleInput.focus();
+            titleInput.select();
+            return;
+          }
+          openRenameDialog(item.dataset.path, item.dataset.title);
         });
       }
       if (removeBtn) {
@@ -443,9 +644,7 @@
         removeBtn.addEventListener("click", function (event) {
           event.preventDefault();
           event.stopPropagation();
-          removeChapter(item).catch(function () {
-            window.alert("Could not remove chapter.");
-          });
+          openRemoveDialog(item.dataset.path, item.dataset.title);
         });
       }
     });
@@ -455,5 +654,7 @@
   setupWysiwyg();
   setupAssetPicker();
   setupBuild();
+  setupChapterDialogs();
+  setupChapterTitleInput();
   setupChapterList();
 })();

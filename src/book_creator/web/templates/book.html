@@ -67,9 +67,16 @@
   <section class="editor-panel">
     {% if selected and editable %}
     <header class="panel-head editor-header">
-      <div>
-        <h2>{{ selected_title }}</h2>
-        <p class="muted">{{ selected.split('/')[-1] }} · edits autosave as Markdown</p>
+      <div class="chapter-title-wrap">
+        <label class="sr-only" for="chapter-title-input">Chapter title</label>
+        <input type="text"
+               id="chapter-title-input"
+               class="chapter-title-input"
+               value="{{ selected_title }}"
+               data-path="{{ selected }}"
+               data-title="{{ selected_title }}"
+               autocomplete="off"
+               spellcheck="true">
       </div>
       <div class="row editor-toolbar-extra">
         <button type="button" class="button ghost" id="insert-asset-btn">Insert illustration</button>
@@ -121,6 +128,30 @@
   </div>
 </dialog>
 
+<dialog id="rename-chapter-dialog" class="sheet">
+  <form class="sheet-body" id="rename-chapter-form">
+    <h2>Rename chapter</h2>
+    <input type="hidden" id="rename-chapter-path" name="path">
+    <label>Title <input id="rename-chapter-title" name="title" required autocomplete="off"></label>
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit">Rename</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="remove-chapter-dialog" class="sheet">
+  <form class="sheet-body" id="remove-chapter-form">
+    <h2>Remove chapter</h2>
+    <p>Remove <strong id="remove-chapter-label"></strong> from the book? This deletes the manuscript file.</p>
+    <input type="hidden" id="remove-chapter-path" name="path">
+    <div class="row dialog-actions">
+      <button type="button" class="button ghost" data-close-dialog>Cancel</button>
+      <button type="submit" class="danger">Remove</button>
+    </div>
+  </form>
+</dialog>
+
 {{ publish_dialog(book, has_override, editions, jobs, building) }}
 {% endblock %}
 {% block head %}
@@ -128,5 +159,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
-<script src="/static/studio.js?v=5"></script>
+<script src="/static/studio.js?v=6"></script>
 {% endblock %}

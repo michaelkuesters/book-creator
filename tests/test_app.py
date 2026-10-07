@@ -6,6 +6,19 @@ from book_creator.app import app
 from book_creator.packages import create_book, read_book_txt, read_text_file, book_root
 
 
+def test_settings_page(data_dir):
+    client = TestClient(app)
+    page = client.get("/settings")
+    assert page.status_code == 200
+    assert b"Settings" in page.content
+    assert b'theme-light' in page.content or b'id="theme-light"' in page.content
+    assert b'id="theme-dark"' in page.content
+    assert b'id="ink-color"' in page.content
+    assert b'type="color"' in page.content
+    home = client.get("/")
+    assert b'href="/settings"' in home.content
+
+
 def test_home_and_book_pages(data_dir):
     book = create_book("UI Book")
     client = TestClient(app)
@@ -13,12 +26,15 @@ def test_home_and_book_pages(data_dir):
     assert home.status_code == 200
     assert b"Library" in home.content
     assert b"UI Book" in home.content
+    assert b'href="/settings"' in home.content
     page = client.get(f"/books/{book['id']}")
     assert page.status_code == 200
     assert b"Contents" in page.content
     assert b"Write" in page.content
     assert b"Publish" in page.content
     assert b"UI Book" in page.content
+    assert b"chapter-title-input" in page.content
+    assert b"edits autosave as Markdown" not in page.content
     details = client.get(f"/books/{book['id']}/details")
     assert details.status_code == 200
     assert b"Book details" in details.content
@@ -27,7 +43,7 @@ def test_home_and_book_pages(data_dir):
     assert b"Assets" in assets.content
     saved = client.post(
         f"/books/{book['id']}/files",
-        data={"path": "manuscript/00-start.md", "content": "# UI Book\n\nSaved from test.\n"},
+        data={"path": "manuscript/UI Book.md", "content": "# UI Book\n\nSaved from test.\n"},
         follow_redirects=True,
     )
     assert saved.status_code == 200
@@ -39,7 +55,7 @@ def test_autosave_returns_json(data_dir):
     client = TestClient(app)
     response = client.post(
         f"/books/{book['id']}/files",
-        data={"path": "manuscript/00-start.md", "content": "# Autosave\n\nIdle save.\n"},
+        data={"path": "manuscript/Autosave Book.md", "content": "# Autosave\n\nIdle save.\n"},
         params={"autosave": "true"},
         headers={"Accept": "application/json"},
     )
@@ -80,16 +96,16 @@ def test_chapter_reorder_rename_remove(data_dir):
     )
     assert added.status_code == 303
     root = book_root(book["id"])
-    assert read_book_txt(root) == ["00-start.md", "Second chapter.md"]
+    assert read_book_txt(root) == ["Chapter Ops.md", "Second chapter.md"]
 
     reordered = client.post(
         f"/books/{book['id']}/order",
-        data={"order": "Second chapter.md\n00-start.md"},
+        data={"order": "Second chapter.md\nChapter Ops.md"},
         headers={"Accept": "application/json"},
     )
     assert reordered.status_code == 200
-    assert reordered.json()["order"] == ["Second chapter.md", "00-start.md"]
-    assert read_book_txt(root) == ["Second chapter.md", "00-start.md"]
+    assert reordered.json()["order"] == ["Second chapter.md", "Chapter Ops.md"]
+    assert read_book_txt(root) == ["Second chapter.md", "Chapter Ops.md"]
 
     renamed = client.post(
         f"/books/{book['id']}/files/rename",
@@ -97,21 +113,26 @@ def test_chapter_reorder_rename_remove(data_dir):
         headers={"Accept": "application/json"},
     )
     assert renamed.status_code == 200
-    assert renamed.json()["title"] == "Later thoughts"
-    assert read_text_file(root, "manuscript/Second chapter.md").startswith("# Later thoughts\n")
+    payload = renamed.json()
+    assert payload["title"] == "Later thoughts"
+    assert payload["name"] == "Later thoughts.md"
+    assert payload["path"] == "manuscript/Later thoughts.md"
+    assert read_text_file(root, "manuscript/Later thoughts.md").startswith("# Later thoughts\n")
+    assert read_book_txt(root) == ["Later thoughts.md", "Chapter Ops.md"]
+    assert not (root / "manuscript" / "Second chapter.md").exists()
 
     page = client.get(f"/books/{book['id']}")
     assert page.status_code == 200
-    assert b'data-chapter-rename' in page.content
-    assert b'data-chapter-remove' in page.content
+    assert b"rename-chapter-dialog" in page.content
+    assert b"remove-chapter-dialog" in page.content
     assert b"Later thoughts" in page.content
 
     removed = client.post(
         f"/books/{book['id']}/files/delete",
-        data={"path": "manuscript/Second chapter.md"},
+        data={"path": "manuscript/Later thoughts.md"},
         headers={"Accept": "application/json"},
     )
     assert removed.status_code == 200
     assert removed.json()["ok"] is True
-    assert read_book_txt(root) == ["00-start.md"]
-    assert not (root / "manuscript" / "Second chapter.md").exists()
+    assert read_book_txt(root) == ["Chapter Ops.md"]
+    assert not (root / "manuscript" / "Later thoughts.md").exists()

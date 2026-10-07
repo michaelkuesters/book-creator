@@ -12,7 +12,7 @@ from book_creator.packages import (
     list_files,
     read_book_txt,
     read_text_file,
-    set_chapter_title,
+    rename_chapter,
     write_book_txt,
     write_text_file,
     zip_package,
@@ -32,7 +32,7 @@ def test_create_empty_book(data_dir):
     book = create_book("Demo")
     root = data_dir / "books" / book["id"]
     assert (root / "metadata.yaml").is_file()
-    assert read_book_txt(root) == ["00-start.md"]
+    assert read_book_txt(root) == ["Demo.md"]
 
 
 def test_import_edit_export(data_dir, tiny_package):
@@ -59,10 +59,16 @@ def test_import_edit_export(data_dir, tiny_package):
     assert "manuscript/01-hello.md" in names
 
 
-def test_set_chapter_title(data_dir):
+def test_rename_chapter_keeps_filename_in_sync(data_dir):
     book = create_book("Demo")
     root = data_dir / "books" / book["id"]
-    cleaned = set_chapter_title(root, "manuscript/00-start.md", "  Fresh start  ")
-    assert cleaned == "Fresh start"
-    assert read_text_file(root, "manuscript/00-start.md").startswith("# Fresh start\n")
+    result = rename_chapter(root, "manuscript/Demo.md", "  Fresh start  ")
+    assert result == {
+        "title": "Fresh start",
+        "name": "Fresh start.md",
+        "path": "manuscript/Fresh start.md",
+    }
+    assert read_book_txt(root) == ["Fresh start.md"]
+    assert read_text_file(root, "manuscript/Fresh start.md").startswith("# Fresh start\n")
+    assert not (root / "manuscript" / "Demo.md").exists()
     assert list_chapters(root)[0]["title"] == "Fresh start"
