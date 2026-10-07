@@ -8,9 +8,11 @@ from book_creator.packages import (
     create_book,
     delete_file,
     import_book,
+    list_chapters,
     list_files,
     read_book_txt,
     read_text_file,
+    set_chapter_title,
     write_book_txt,
     write_text_file,
     zip_package,
@@ -55,3 +57,12 @@ def test_import_edit_export(data_dir, tiny_package):
     assert "metadata.yaml" in names
     assert "manuscript/Book.txt" in names
     assert "manuscript/01-hello.md" in names
+
+
+def test_set_chapter_title(data_dir):
+    book = create_book("Demo")
+    root = data_dir / "books" / book["id"]
+    cleaned = set_chapter_title(root, "manuscript/00-start.md", "  Fresh start  ")
+    assert cleaned == "Fresh start"
+    assert read_text_file(root, "manuscript/00-start.md").startswith("# Fresh start\n")
+    assert list_chapters(root)[0]["title"] == "Fresh start"

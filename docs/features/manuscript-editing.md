@@ -33,9 +33,22 @@ Scenario: Autosave
   When the idle timer fires
   Then the chapter file is saved through the same save endpoint as an explicit save
 
-Scenario: Delete a chapter
+Scenario: Reorder chapters from Write
+  Given the Write view with two or more chapters
+  When the operator drag-and-drops a chapter in the Contents list
+  Then Book.txt order matches the new list order
+
+Scenario: Rename a chapter from Write
+  Given a chapter in the Contents list
+  When the operator hovers that chapter and chooses rename
+  And enters a new title
+  Then the chapter heading title updates
+  And the Contents list shows the new title
+
+Scenario: Delete a chapter from Write
   Given a chapter that is not Book.txt or metadata.yaml
-  When the operator deletes it
+  When the operator hovers that chapter and chooses remove
+  And confirms the prompt
   Then the file is gone
   And it is removed from Book.txt
 
@@ -70,7 +83,8 @@ Scenario: Insert illustration into a chapter
 
 - Book chrome: Write (`/books/<id>`), Assets (`/books/<id>/assets`), Details (`/books/<id>/details`), plus Download and Publish in the navbar.
 - Chapter sources are `manuscript/*.md`; the Write sidebar lists chapters in `Book.txt` order by heading title when available.
-- Reading order is `manuscript/Book.txt` (one filename per line, unique, files must exist), edited on Details.
+- Reading order is `manuscript/Book.txt` (one filename per line, unique, files must exist). Operators reorder it by drag-and-drop in the Write Contents list; Details still accepts a raw order edit.
+- Hovering a Contents row reveals rename (pen) and remove (trash) actions. Remove asks for confirmation. Rename updates the chapter’s Markdown heading title shown in the list.
 - Details fields map to `metadata.yaml`: title, subtitle, author, lang, rights, date, description.
 - Assets live in `manuscript/resources/`; images are served at `/books/<id>/assets/<name>` for preview and editor display.
 - Embedded images in Markdown use `resources/<filename>` so Pandoc’s manuscript resource path still resolves them.
@@ -100,7 +114,8 @@ Scenario: Insert illustration into a chapter
 1. Adding a chapter creates `manuscript/<name>.md`, appends it to `Book.txt`, and opens Write on that file.
 2. Editing a chapter persists UTF-8 Markdown without turning `\n` into `\r\n`; autosave and Save now use the same endpoint.
 3. WYSIWYG displays formatted emphasis (for example italic and strikethrough) while the saved file remains Markdown.
-4. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
-5. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
-6. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown.
-7. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON and asset upload/serve).
+4. Drag-and-drop in Write Contents persists the new order to `Book.txt`; rename updates the chapter heading title; remove (with confirm) deletes the file and drops it from `Book.txt`.
+5. Details page saves metadata and chapter order; removing the book deletes its SQLite row and package directory.
+6. Assets page lists `manuscript/resources/` entries; JSON upload returns a `resources/<name>` Markdown path; `/books/<id>/assets/<name>` serves the file.
+7. Insert illustration (picker or editor image upload) writes a `resources/…` image into the chapter Markdown.
+8. Covered by `tests/test_packages.py` and `tests/test_app.py` (including autosave JSON, chapter rename/reorder/remove, and asset upload/serve).

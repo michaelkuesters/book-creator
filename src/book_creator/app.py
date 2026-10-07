@@ -30,6 +30,7 @@ from book_creator.packages import (
     read_book_txt,
     read_text_file,
     resolve_inside,
+    set_chapter_title,
     touch_book,
     write_binary_file,
     write_book_txt,
@@ -234,6 +235,19 @@ def add_file(
     return RedirectResponse(f"/books/{book_id}?file={relative}", status_code=303)
 
 
+@app.post("/books/{book_id}/files/rename")
+def rename_file(request: Request, book_id: str, path: str = Form(...), title: str = Form(...)):
+    _book_or_404(book_id)
+    try:
+        cleaned = set_chapter_title(book_root(book_id), path, title)
+        touch_book(book_id)
+    except PackageError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path, "title": cleaned})
+    return RedirectResponse(f"/books/{book_id}?file={path}", status_code=303)
+
+
 @app.post("/books/{book_id}/files/delete")
 def remove_file(request: Request, book_id: str, path: str = Form(...)):
     _book_or_404(book_id)
@@ -242,9 +256,9 @@ def remove_file(request: Request, book_id: str, path: str = Form(...)):
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "path": path})
     if path.startswith("manuscript/resources/"):
-        if _wants_json(request):
-            return JSONResponse({"ok": True})
         return RedirectResponse(f"/books/{book_id}/assets", status_code=303)
     return RedirectResponse(f"/books/{book_id}", status_code=303)
 
@@ -280,7 +294,7 @@ async def upload_resource(
 
 
 @app.post("/books/{book_id}/order")
-def save_order(book_id: str, order: str = Form(...)):
+def save_order(request: Request, book_id: str, order: str = Form(...)):
     _book_or_404(book_id)
     names = [line.strip() for line in order.splitlines() if line.strip()]
     try:
@@ -288,6 +302,8 @@ def save_order(book_id: str, order: str = Form(...)):
         touch_book(book_id)
     except PackageError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "order": names})
     return RedirectResponse(f"/books/{book_id}/details", status_code=303)
 
 

@@ -99,6 +99,36 @@ def list_chapters(root: Path) -> list[dict]:
     return chapters
 
 
+def set_chapter_title(root: Path, relative: str, title: str) -> str:
+    """Update the chapter's leading AT1 heading. Returns the cleaned title."""
+    rel = relative.replace("\\", "/").lstrip("/")
+    if not rel.startswith("manuscript/") or not rel.endswith(".md"):
+        raise PackageError("Only manuscript chapters can be renamed")
+    if rel in PROTECTED:
+        raise PackageError("This file cannot be renamed")
+    cleaned = " ".join(title.split()).strip()
+    if not cleaned:
+        raise PackageError("Chapter title is required")
+    path = resolve_inside(root, rel)
+    if not path.is_file():
+        raise PackageError("File not found")
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    lines = text.splitlines()
+    heading = f"# {cleaned}"
+    if lines and lines[0].strip().startswith("# "):
+        lines[0] = heading
+        body = "\n".join(lines)
+    elif lines and lines[0].strip() == "#":
+        lines[0] = heading
+        body = "\n".join(lines)
+    else:
+        body = heading + ("\n\n" + text.lstrip("\n") if text.strip() else "\n")
+    if not body.endswith("\n"):
+        body += "\n"
+    path.write_text(body, encoding="utf-8")
+    return cleaned
+
+
 def find_cover(root: Path) -> Path | None:
     resources = root / "manuscript" / "resources"
     for name in COVER_NAMES:

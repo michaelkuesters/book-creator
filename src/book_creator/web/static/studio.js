@@ -294,8 +294,166 @@
     });
   }
 
+  function chapterOrderPayload(list) {
+    return Array.prototype.map
+      .call(list.querySelectorAll(".chapter-item"), function (item) {
+        return item.dataset.name;
+      })
+      .join("\n");
+  }
+
+  async function persistChapterOrder(list) {
+    const id = bookId();
+    if (!id) return;
+    const body = new FormData();
+    body.append("order", chapterOrderPayload(list));
+    const response = await fetch("/books/" + id + "/order", {
+      method: "POST",
+      body,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("reorder failed");
+  }
+
+  async function renameChapter(item) {
+    const current = item.dataset.title || "";
+    const next = window.prompt("Rename chapter", current);
+    if (next === null) return;
+    const title = next.trim();
+    if (!title || title === current) return;
+    const id = bookId();
+    const body = new FormData();
+    body.append("path", item.dataset.path);
+    body.append("title", title);
+    const response = await fetch("/books/" + id + "/files/rename", {
+      method: "POST",
+      body,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("rename failed");
+    const data = await response.json();
+    item.dataset.title = data.title;
+    const link = item.querySelector(".chapter-link");
+    if (link) {
+      link.textContent = data.title;
+      link.title = item.dataset.name;
+    }
+    item.querySelectorAll("[aria-label]").forEach(function (button) {
+      const action = button.hasAttribute("data-chapter-rename") ? "Rename " : "Remove ";
+      button.setAttribute("aria-label", action + data.title);
+      button.title = action.trim();
+    });
+    if (link && link.classList.contains("active")) {
+      const heading = document.querySelector(".editor-header h2");
+      if (heading) heading.textContent = data.title;
+    }
+  }
+
+  async function removeChapter(item) {
+    const title = item.dataset.title || item.dataset.name || "this chapter";
+    if (!window.confirm('Remove "' + title + '" from the book?')) return;
+    const id = bookId();
+    const path = item.dataset.path;
+    const body = new FormData();
+    body.append("path", path);
+    const response = await fetch("/books/" + id + "/files/delete", {
+      method: "POST",
+      body,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("remove failed");
+    const wasActive = item.querySelector(".chapter-link.active");
+    item.remove();
+    if (wasActive) {
+      const next = document.querySelector(".chapter-item .chapter-link");
+      window.location.href = next ? next.getAttribute("href") : "/books/" + id;
+    }
+  }
+
+  function setupChapterList() {
+    const list = document.getElementById("chapter-list");
+    if (!list) return;
+    let dragItem = null;
+    let startOrder = "";
+
+    list.querySelectorAll(".chapter-item").forEach(function (item) {
+      item.addEventListener("dragstart", function (event) {
+        if (event.target.closest && event.target.closest(".chapter-action")) {
+          event.preventDefault();
+          return;
+        }
+        dragItem = item;
+        startOrder = chapterOrderPayload(list);
+        item.classList.add("is-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", item.dataset.path || "");
+        }
+      });
+      item.addEventListener("dragend", async function () {
+        item.classList.remove("is-dragging");
+        list.querySelectorAll(".is-drop-target").forEach(function (el) {
+          el.classList.remove("is-drop-target");
+        });
+        const moved = dragItem;
+        dragItem = null;
+        if (!moved) return;
+        if (chapterOrderPayload(list) === startOrder) return;
+        try {
+          await persistChapterOrder(list);
+        } catch (err) {
+          window.location.reload();
+        }
+      });
+      item.addEventListener("dragover", function (event) {
+        event.preventDefault();
+        if (!dragItem || dragItem === item) return;
+        const rect = item.getBoundingClientRect();
+        const before = event.clientY < rect.top + rect.height / 2;
+        list.querySelectorAll(".is-drop-target").forEach(function (el) {
+          el.classList.remove("is-drop-target");
+        });
+        item.classList.add("is-drop-target");
+        if (before) list.insertBefore(dragItem, item);
+        else list.insertBefore(dragItem, item.nextSibling);
+      });
+      item.addEventListener("drop", function (event) {
+        event.preventDefault();
+        item.classList.remove("is-drop-target");
+      });
+
+      const renameBtn = item.querySelector("[data-chapter-rename]");
+      const removeBtn = item.querySelector("[data-chapter-remove]");
+      if (renameBtn) {
+        renameBtn.addEventListener("mousedown", function (event) {
+          event.stopPropagation();
+        });
+        renameBtn.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          renameChapter(item).catch(function () {
+            window.alert("Could not rename chapter.");
+          });
+        });
+      }
+      if (removeBtn) {
+        removeBtn.addEventListener("mousedown", function (event) {
+          event.stopPropagation();
+        });
+        removeBtn.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          removeChapter(item).catch(function () {
+            window.alert("Could not remove chapter.");
+          });
+        });
+      }
+    });
+  }
+
   setupDialogs();
   setupWysiwyg();
   setupAssetPicker();
   setupBuild();
+  setupChapterList();
 })();

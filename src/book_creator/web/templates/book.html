@@ -28,12 +28,30 @@
     </div>
 
     <h2>Contents</h2>
-    <ul class="chapters">
+    <ul class="chapters" id="chapter-list">
       {% for chapter in chapters %}
-      <li>
-        <a class="{% if chapter.path == selected %}active{% endif %}"
+      <li class="chapter-item"
+          draggable="true"
+          data-path="{{ chapter.path }}"
+          data-name="{{ chapter.name }}"
+          data-title="{{ chapter.title }}">
+        <a class="chapter-link {% if chapter.path == selected %}active{% endif %}"
            href="/books/{{ book.id }}?file={{ chapter.path }}"
            title="{{ chapter.name }}">{{ chapter.title }}</a>
+        <span class="chapter-actions">
+          <button type="button" class="chapter-action" data-chapter-rename draggable="false"
+                  aria-label="Rename {{ chapter.title }}" title="Rename">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm14.71-9.04c.39-.39.39-1.02 0-1.41l-2.51-2.51a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.99-1.66z"/>
+            </svg>
+          </button>
+          <button type="button" class="chapter-action danger" data-chapter-remove draggable="false"
+                  aria-label="Remove {{ chapter.title }}" title="Remove">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+            </svg>
+          </button>
+        </span>
       </li>
       {% else %}
       <li class="muted">No chapters yet.</li>
@@ -63,12 +81,6 @@
       <textarea class="editor" name="content" id="editor-content" hidden>{{ content }}</textarea>
       <div id="wysiwyg-editor" class="wysiwyg-host"></div>
     </form>
-    {% if selected not in ['manuscript/Book.txt', 'metadata.yaml'] %}
-    <form method="post" action="/books/{{ book.id }}/files/delete" onsubmit="return confirm('Delete this chapter?');">
-      <input type="hidden" name="path" value="{{ selected }}">
-      <div class="row"><button class="danger ghost" type="submit">Delete chapter</button></div>
-    </form>
-    {% endif %}
     {% elif not chapters %}
     <header class="panel-head">
       <h2>Start writing</h2>
@@ -116,5 +128,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"></script>
-<script src="/static/studio.js?v=4"></script>
+<script src="/static/studio.js?v=5"></script>
 {% endblock %}
