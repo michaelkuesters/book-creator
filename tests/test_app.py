@@ -38,7 +38,7 @@ def test_settings_sheet(data_dir):
     assert b".wysiwyg-host .toastui-editor-contents p" in css.content
     assert b".wysiwyg-host .toastui-editor-dark .toastui-editor-contents p" in css.content
     assert b"color: var(--write-ink)" in css.content
-    # Unsaved edits: character-level add/remove cues, not a whole-editor backdrop.
+    # Unsaved edits: add/remove cues via maximal equal-substring diff, not a whole-editor backdrop.
     assert b".bc-unsaved-add" in css.content
     assert b".bc-unsaved-del" in css.content
     assert b"opacity: 0.1" in css.content
@@ -52,6 +52,14 @@ def test_settings_sheet(data_dir):
     assert b"baseline: null" in studio_js.content
     assert b"settleUnsavedBaseline" in studio_js.content
     assert b"!dirty" in studio_js.content
+    assert b"diffStrings" in studio_js.content
+    assert b"findLongestMatch" in studio_js.content
+    assert b"UNSAVED_SEGMENT_LIMIT = 50" in studio_js.content
+    assert b"queueConsolidateSave" in studio_js.content
+    assert b"pushGapOps" in studio_js.content
+    assert b"slicesEqual" in studio_js.content
+    assert b"isDiffJunkChar" in studio_js.content
+    assert b"diffChars" not in studio_js.content
 
 
 def test_home_and_book_pages(data_dir):

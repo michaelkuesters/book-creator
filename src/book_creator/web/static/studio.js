@@ -1,10 +1,17 @@
 (function () {
   const IDLE_MS = 10000;
+  /** Autosave when the unsaved diff reaches this many segments (consolidate baseline). */
+  const UNSAVED_SEGMENT_LIMIT = 50;
+  /** Skip fine matching when mid-region product exceeds this (treat as one replace). */
+  const DIFF_SCAN_BUDGET = 400000;
+  /** Ignore tiny anchors (e.g. a lone "r") that scramble word/space boundaries. */
+  const DIFF_MIN_MATCH = 3;
   const UNSAVED_META = "bcUnsaved";
   let editor = null;
   let dirty = false;
   let saving = false;
   let timer = null;
+  let consolidateQueued = false;
   let sessionNeedsCheckpoint = false;
   let markBaseline = function () {
     return false;
@@ -288,78 +295,177 @@
     return { text: text, posAt: posAt };
   }
 
-  /** Myers O(ND) char diff → [[op, text], ...] with op -1|0|1. */
-  function diffChars(a, b) {
-    if (a === b) return a ? [[0, a]] : [];
-    if (!a) return [[1, b]];
-    if (!b) return [[-1, a]];
+  function isDiffJunkChar(ch) {
+    // Only whitespace is a non-starter. Popular-letter autojunk on character
+    // diffs leaves equal spaces unmatched (delete+insert of the same " "),
+    // which collapses word gaps in the editor under decoration widgets.
+    return ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
+  }
 
-    var n = a.length;
-    var m = b.length;
-    var max = n + m;
-    var offset = max;
-    var v = new Array(2 * max + 1);
-    var trace = [];
-    var d;
-    var k;
-    var x;
-    var y;
+  /**
+   * Longest contiguous equal substring in a[aLo:aHi] × b[bLo:bHi].
+   * Whitespace cannot start a match (extends through it once anchored).
+   */
+  function findLongestMatch(a, aLo, aHi, b, bLo, bHi) {
+    var aLen = aHi - aLo;
+    var bLen = bHi - bLo;
+    if (aLen <= 0 || bLen <= 0) return { a: aLo, b: bLo, size: 0 };
+    if (aLen * bLen > DIFF_SCAN_BUDGET) return { a: aLo, b: bLo, size: 0 };
 
-    v[offset + 1] = 0;
-    outer: for (d = 0; d <= max; d++) {
-      trace.push(v.slice());
-      for (k = -d; k <= d; k += 2) {
-        if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) {
-          x = v[offset + k + 1];
-        } else {
-          x = v[offset + k - 1] + 1;
+    var bIndex = Object.create(null);
+    var j;
+    for (j = bLo; j < bHi; j++) {
+      var ch = b.charAt(j);
+      if (!bIndex[ch]) bIndex[ch] = [];
+      bIndex[ch].push(j);
+    }
+    var bestI = aLo;
+    var bestJ = bLo;
+    var bestSize = 0;
+    var i;
+    for (i = aLo; i < aHi; i++) {
+      if (aHi - i <= bestSize) break;
+      var chA = a.charAt(i);
+      if (isDiffJunkChar(chA)) continue;
+      var positions = bIndex[chA];
+      if (!positions) continue;
+      for (var p = 0; p < positions.length; p++) {
+        var j0 = positions[p];
+        if (j0 < bLo || j0 >= bHi) continue;
+        if (bHi - j0 <= bestSize) continue;
+        var k = 1;
+        while (i + k < aHi && j0 + k < bHi && a.charAt(i + k) === b.charAt(j0 + k)) {
+          k++;
         }
-        y = x - k;
-        while (x < n && y < m && a.charAt(x) === b.charAt(y)) {
-          x++;
-          y++;
+        if (k > bestSize) {
+          bestI = i;
+          bestJ = j0;
+          bestSize = k;
         }
-        v[offset + k] = x;
-        if (x >= n && y >= m) break outer;
       }
     }
+    if (bestSize < DIFF_MIN_MATCH) return { a: aLo, b: bLo, size: 0 };
+    return { a: bestI, b: bestJ, size: bestSize };
+  }
 
-    var edits = [];
-    x = n;
-    y = m;
-    for (; d > 0; d--) {
-      var vPrev = trace[d];
-      k = x - y;
-      var prevK =
-        k === -d || (k !== d && vPrev[offset + k - 1] < vPrev[offset + k + 1])
-          ? k + 1
-          : k - 1;
-      var prevX = vPrev[offset + prevK];
-      var prevY = prevX - prevK;
-      while (x > prevX && y > prevY) {
-        edits.push([0, a.charAt(--x)]);
-        y--;
-      }
-      if (d > 0) {
-        if (x > prevX) edits.push([-1, a.charAt(--x)]);
-        else edits.push([1, b.charAt(--y)]);
-      }
+  function slicesEqual(a, aLo, aHi, b, bLo, bHi) {
+    if (aHi - aLo !== bHi - bLo) return false;
+    for (var t = 0; t < aHi - aLo; t++) {
+      if (a.charAt(aLo + t) !== b.charAt(bLo + t)) return false;
     }
-    while (x > 0 && y > 0) {
-      edits.push([0, a.charAt(--x)]);
-      y--;
-    }
-    while (x > 0) edits.push([-1, a.charAt(--x)]);
-    while (y > 0) edits.push([1, b.charAt(--y)]);
-    edits.reverse();
+    return true;
+  }
 
+  /** Recursive maximal equal-string blocks → sorted [{a,b,size}, ...]. */
+  function matchingBlocks(a, b) {
+    var blocks = [];
+    function recurse(aLo, aHi, bLo, bHi) {
+      if (aLo >= aHi && bLo >= bHi) return;
+      // Whitespace-only (and any other identical) gaps must stay equal; junk
+      // non-starters would otherwise leave them unmatched.
+      if (aLo < aHi && slicesEqual(a, aLo, aHi, b, bLo, bHi)) {
+        blocks.push({ a: aLo, b: bLo, size: aHi - aLo });
+        return;
+      }
+      var match = findLongestMatch(a, aLo, aHi, b, bLo, bHi);
+      if (match.size === 0) return;
+      if (match.a > aLo || match.b > bLo) recurse(aLo, match.a, bLo, match.b);
+      blocks.push(match);
+      var aNext = match.a + match.size;
+      var bNext = match.b + match.size;
+      if (aNext < aHi || bNext < bHi) recurse(aNext, aHi, bNext, bHi);
+    }
+    recurse(0, a.length, 0, b.length);
+    blocks.sort(function (x, y) {
+      return x.a - y.a || x.b - y.b;
+    });
+    return blocks;
+  }
+
+  /** Push delete/insert for a gap; identical sides collapse to equal. */
+  function pushGapOps(edits, del, ins) {
+    if (del && ins && del === ins) {
+      edits.push([0, del]);
+      return;
+    }
+    if (del) edits.push([-1, del]);
+    if (ins) edits.push([1, ins]);
+  }
+
+  function mergeDiffOps(edits) {
     var merged = [];
     for (var i = 0; i < edits.length; i++) {
+      if (!edits[i][1]) continue;
       var last = merged[merged.length - 1];
       if (last && last[0] === edits[i][0]) last[1] += edits[i][1];
       else merged.push([edits[i][0], edits[i][1]]);
     }
     return merged;
+  }
+
+  /** Maximal equal-substring diff → [[op, text], ...] with op -1|0|1. */
+  function diffStrings(a, b) {
+    if (a === b) return a ? [[0, a]] : [];
+    if (!a) return [[1, b]];
+    if (!b) return [[-1, a]];
+
+    var start = 0;
+    var aLen = a.length;
+    var bLen = b.length;
+    while (start < aLen && start < bLen && a.charAt(start) === b.charAt(start)) {
+      start++;
+    }
+    var aEnd = aLen;
+    var bEnd = bLen;
+    while (aEnd > start && bEnd > start && a.charAt(aEnd - 1) === b.charAt(bEnd - 1)) {
+      aEnd--;
+      bEnd--;
+    }
+
+    var edits = [];
+    if (start > 0) edits.push([0, a.slice(0, start)]);
+
+    var aMid = a.slice(start, aEnd);
+    var bMid = b.slice(start, bEnd);
+    if (!aMid && bMid) {
+      edits.push([1, bMid]);
+    } else if (aMid && !bMid) {
+      edits.push([-1, aMid]);
+    } else if (aMid && bMid) {
+      var blocks = matchingBlocks(aMid, bMid);
+      var ai = 0;
+      var bi = 0;
+      for (var i = 0; i < blocks.length; i++) {
+        var m = blocks[i];
+        pushGapOps(
+          edits,
+          ai < m.a ? aMid.slice(ai, m.a) : "",
+          bi < m.b ? bMid.slice(bi, m.b) : ""
+        );
+        edits.push([0, aMid.slice(m.a, m.a + m.size)]);
+        ai = m.a + m.size;
+        bi = m.b + m.size;
+      }
+      pushGapOps(
+        edits,
+        ai < aMid.length ? aMid.slice(ai) : "",
+        bi < bMid.length ? bMid.slice(bi) : ""
+      );
+    }
+
+    if (aEnd < aLen) edits.push([0, a.slice(aEnd)]);
+    return mergeDiffOps(edits);
+  }
+
+  function queueConsolidateSave() {
+    if (consolidateQueued || saving || !dirty) return;
+    if (versionView && versionView.mode === "readonly") return;
+    consolidateQueued = true;
+    clearTimeout(timer);
+    window.setTimeout(function () {
+      consolidateQueued = false;
+      saveNow();
+    }, 0);
   }
 
   function gapPos(posAt, offset, doc) {
@@ -394,7 +500,11 @@
     try {
       var indexed = indexDocText(doc);
       if (indexed.text === baseline) return DecorationSet.empty;
-      var diffs = diffChars(baseline, indexed.text);
+      var diffs = diffStrings(baseline, indexed.text);
+      if (diffs.length >= UNSAVED_SEGMENT_LIMIT) {
+        queueConsolidateSave();
+        return DecorationSet.empty;
+      }
       var decos = [];
       var newOffset = 0;
       var delKey = 0;
