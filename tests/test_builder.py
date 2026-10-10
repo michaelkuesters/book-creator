@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import io
 import shutil
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -10,8 +13,10 @@ from book_creator.builder.engine import BuildError, build_editions
 from book_creator.jobs import get_job, start_build
 from book_creator.packages import import_book
 from book_creator.packages import zip_package
-import io
-import zipfile
+
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 
 def _zip_tree(root: Path) -> bytes:
@@ -111,6 +116,63 @@ def test_default_build_tolerates_html_br_raw_inline(tiny_package):
     assert (dist / "Tiny_Test_Book.pdf").is_file()
     assert (dist / "Tiny_Test_Book.epub").is_file()
     assert report["pdf_pages"] >= 2
+
+
+def _pdf_image_xobject_count(pdf_path: Path) -> int:
+    from pypdf import PdfReader
+
+    count = 0
+    reader = PdfReader(str(pdf_path))
+    for page in reader.pages:
+        resources = page.get("/Resources") or {}
+        xobjects = resources.get("/XObject") or {}
+        for ref in xobjects.values():
+            obj = ref.get_object()
+            if obj.get("/Subtype") == "/Image":
+                count += 1
+    return count
+
+
+def test_default_build_tolerates_cite_inline(tiny_package):
+    if not _pandoc_available():
+        pytest.skip("pandoc is required for the default builder")
+    chapter = tiny_package / "manuscript" / "01-hello.md"
+    chapter.write_text(
+        "# Hello\n\nSee @smith2020 for background.\n\nAlso [@doe2019, p. 12].\n",
+        encoding="utf-8",
+    )
+    report = build_editions(tiny_package)
+    dist = tiny_package / "dist"
+    assert (dist / "Tiny_Test_Book.pdf").is_file()
+    assert (dist / "Tiny_Test_Book.epub").is_file()
+    assert report["pdf_pages"] >= 2
+
+
+def test_default_build_embeds_chapter_image(tiny_package):
+    if not _pandoc_available():
+        pytest.skip("pandoc is required for the default builder")
+
+    resources = tiny_package / "manuscript" / "resources"
+    (resources / "diagram.png").write_bytes(TINY_PNG)
+    chapter = tiny_package / "manuscript" / "01-hello.md"
+
+    # Cover alone embeds one image XObject; chapter illustration must add another.
+    chapter.write_text("# Hello\n\nNo illustration yet.\n", encoding="utf-8")
+    build_editions(tiny_package)
+    cover_only = _pdf_image_xobject_count(tiny_package / "dist" / "Tiny_Test_Book.pdf")
+
+    chapter.write_text(
+        "# Hello\n\nIntro text.\n\n![diagram](resources/diagram.png)\n\nAfter the figure.\n",
+        encoding="utf-8",
+    )
+    report = build_editions(tiny_package)
+    dist = tiny_package / "dist"
+    pdf_path = dist / "Tiny_Test_Book.pdf"
+    assert pdf_path.is_file()
+    assert (dist / "Tiny_Test_Book.epub").is_file()
+    assert report["pdf_pages"] >= 2
+    with_image = _pdf_image_xobject_count(pdf_path)
+    assert with_image > cover_only, (cover_only, with_image)
 
 
 def test_bundled_serif_italic_faces_exist():

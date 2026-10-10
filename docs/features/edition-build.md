@@ -45,6 +45,25 @@ Scenario: Residual raw HTML does not fail the default build
   Then the job succeeds
   And known break tags become line breaks in the PDF
   And other raw HTML inlines/blocks are omitted rather than aborting the build
+
+Scenario: Chapter images in the default build
+  Given a valid package whose chapter Markdown embeds an image under manuscript/resources/
+    (for example `![diagram](resources/diagram.png)` from Insert illustration)
+  And the referenced image file exists
+  And the operator builds with the default studio engine (not the package script)
+  When PDF and EPUB are produced
+  Then the job succeeds
+  And the image appears in the reading PDF
+  And the EPUB resource path still resolves the same image
+  And the job does not raise Unsupported inline: Image
+
+Scenario: Citations do not fail the default build
+  Given a valid package whose Markdown contains a Pandoc citation (Cite inline)
+  And the operator builds with the default studio engine (not the package script)
+  When PDF rendering walks the Pandoc AST
+  Then the job succeeds
+  And the citation’s display text is rendered in the PDF
+  And the job does not raise Unsupported inline: Cite
 ```
 
 ## Feature description
@@ -52,6 +71,8 @@ Scenario: Residual raw HTML does not fail the default build
 ### Musts
 
 - Default engine: combine chapters, Pandoc JSON, ReportLab PDF, Pandoc EPUB3, DejaVu fonts bundled in the app.
+- Default PDF walker renders Pandoc `Image` inlines (and `Figure` blocks that contain them) from `manuscript/resources/` paths used by the editor; missing image files are skipped with the rest of the paragraph text still rendered.
+- Default PDF walker renders Pandoc `Cite` inlines as their display text (no bibliography/citeproc requirement for the reading PDF).
 - Default PDF walker tolerates Pandoc `RawInline` / `RawBlock`: HTML break tags (`br`) map to a line break; other raw HTML is skipped (content omitted) so residual or imported HTML does not fail the job.
 - Output directory is the package `dist/` on the data volume, not a git `dist/`.
 - Before writing outputs, a default-engine build removes existing files under that package’s `dist/` (so only the current run’s editions remain—no pile-up of old titles or stale PDF/EPUB/Markdown/report files). Override builds are unchanged: the package script owns `dist/`.
@@ -66,6 +87,8 @@ Scenario: Residual raw HTML does not fail the default build
 - Must not claim printer-certified PDF.
 - Must not call Leanpub’s network.
 - Must not fail a default-engine build solely because Pandoc emitted `RawInline` or `RawBlock` for HTML.
+- Must not fail a default-engine build solely because Pandoc emitted an `Image` inline for a chapter illustration under `resources/`.
+- Must not fail a default-engine build solely because Pandoc emitted a `Cite` inline.
 - Must not rewrite the operator’s package `scripts/build_book.py`; override behaviour stays package-owned.
 - Must not delete files outside the book package `dist/` (browser Downloads and other OS folders are out of scope).
 
@@ -82,4 +105,6 @@ Scenario: Residual raw HTML does not fail the default build
 4. Invalid empty `Book.txt` raises a builder error.
 5. Publish UI lists PDF and EPUB download links after a successful default build; those links include a mtime cache buster and the edition response sets no-store cache headers.
 6. Default build of a chapter that still contains an HTML `<br>` (Pandoc `RawInline`) succeeds; the job does not raise `Unsupported inline: RawInline`.
-7. Covered by `tests/test_builder.py` and edition download coverage in `tests/test_app.py`.
+7. Default build of a chapter that embeds `![…](resources/<file>)` with the file present under `manuscript/resources/` succeeds; the PDF includes the image and the job does not raise `Unsupported inline: Image`.
+8. Default build of a chapter that contains a Pandoc citation (`Cite`) succeeds; the job does not raise `Unsupported inline: Cite`.
+9. Covered by `tests/test_builder.py` and edition download coverage in `tests/test_app.py`.

@@ -21,6 +21,7 @@ from reportlab.platypus import (
     BaseDocTemplate,
     CondPageBreak,
     Frame,
+    Image as RLImage,
     Indenter,
     KeepTogether,
     ListFlowable,
@@ -294,6 +295,33 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
         ),
     }
 
+    manuscript_root = (root / "manuscript").resolve()
+
+    def resolve_image_path(url: str) -> Path | None:
+        if not url or "://" in url or url.startswith("data:"):
+            return None
+        rel = url.replace("\\", "/").lstrip("/")
+        if rel.startswith("./"):
+            rel = rel[2:]
+        candidate = (manuscript_root / rel).resolve()
+        try:
+            candidate.relative_to(manuscript_root)
+        except ValueError:
+            return None
+        return candidate if candidate.is_file() else None
+
+    def image_flowable(path: Path):
+        img = RLImage(str(path))
+        iw, ih = float(img.imageWidth), float(img.imageHeight)
+        if iw <= 0 or ih <= 0:
+            return None
+        if iw > content_width:
+            scale = content_width / iw
+            img.drawWidth = content_width
+            img.drawHeight = ih * scale
+        img.hAlign = "CENTER"
+        return img
+
     def inline(items):
         out = []
         for item in items:
@@ -316,6 +344,12 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
                 out.append("&quot;" + inline(value[1]) + "&quot;")
             elif kind == "Span":
                 out.append(inline(value[1]))
+            elif kind == "Image":
+                # Alt text only in contexts that cannot embed (headers, cells, plain()).
+                out.append(inline(value[1]))
+            elif kind == "Cite":
+                # Pandoc Cite: [citations, display_inlines] — render display text only.
+                out.append(inline(value[1]))
             elif kind == "RawInline":
                 fmt, raw = value[0], value[1]
                 if fmt == "html" and re.match(r"^<br\s*/?>$", str(raw).strip(), re.IGNORECASE):
@@ -329,6 +363,56 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
 
     def plain(items):
         return re.sub("<[^>]+>", "", html.unescape(inline(items)))
+
+    def has_image(items) -> bool:
+        for item in items:
+            kind, value = item["t"], item.get("c")
+            if kind == "Image":
+                return True
+            if kind in {"Emph", "Strong", "Span", "Quoted", "Link"} and isinstance(value, list):
+                nested = value[1] if kind in {"Quoted", "Link", "Span"} else value
+                if isinstance(nested, list) and has_image(nested):
+                    return True
+        return False
+
+    def para_flowables(items):
+        """Render Para/Plain inlines, embedding Image as ReportLab flowables."""
+        if not has_image(items):
+            text = inline(items)
+            if not text.strip():
+                return []
+            return [Paragraph(text, styles["body"])]
+
+        result = []
+        buf = []
+
+        def flush_text():
+            nonlocal buf
+            if not buf:
+                return
+            text = inline(buf)
+            buf = []
+            if text.strip():
+                result.append(Paragraph(text, styles["body"]))
+
+        for item in items:
+            if item["t"] == "Image":
+                flush_text()
+                path = resolve_image_path(item["c"][2][0])
+                if path is None:
+                    alt = inline(item["c"][1])
+                    if alt.strip():
+                        result.append(Paragraph(alt, styles["body"]))
+                    continue
+                drawn = image_flowable(path)
+                if drawn is not None:
+                    result.append(Spacer(1, 6))
+                    result.append(drawn)
+                    result.append(Spacer(1, 8))
+            else:
+                buf.append(item)
+        flush_text()
+        return result
 
     def cell_text(blocks):
         text = []
@@ -441,16 +525,20 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
                 counter += 1
                 result.append(para)
             elif kind in {"Para", "Plain"}:
-                text = inline(value)
-                if not text.strip():
+                rendered = para_flowables(value)
+                if not rendered:
                     continue
-                para = Paragraph(text, styles["body"])
-                if block_index + 1 < len(blocks) and blocks[block_index + 1]["t"] == "Table":
+                if (
+                    len(rendered) == 1
+                    and isinstance(rendered[0], Paragraph)
+                    and block_index + 1 < len(blocks)
+                    and blocks[block_index + 1]["t"] == "Table"
+                ):
                     head = blocks[block_index + 1]["c"][3][1]
                     labels = [re.sub("<[^>]+>", "", cell_text(c[4])) for c in head[0][1]] if head else []
                     if labels in [["Step", "Responsibility", "Result"], ["File", "Responsibility"]]:
-                        para.keepWithNext = True
-                result.append(para)
+                        rendered[0].keepWithNext = True
+                result.extend(rendered)
             elif kind == "RawBlock":
                 # Residual raw HTML blocks are omitted (same policy as RawInline).
                 continue
@@ -497,7 +585,11 @@ def _write_pdf(root: Path, meta: dict, document: dict, pdf_path: Path) -> None:
             elif kind == "HorizontalRule":
                 result.append(Spacer(1, 10))
             elif kind == "Figure":
-                result.extend(flowables(value[1], False))
+                # Pandoc 3: [attr, caption, blocks]; older shapes may nest blocks at [1].
+                if isinstance(value, list) and len(value) >= 3 and isinstance(value[2], list):
+                    result.extend(flowables(value[2], False))
+                elif isinstance(value, list) and len(value) >= 2:
+                    result.extend(flowables(value[1], False))
             else:
                 raise BuildError(f"Unsupported block: {kind}")
         if headings and len(result) >= 2 and all(
